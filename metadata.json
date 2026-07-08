@@ -1,0 +1,8 @@
+{
+  "name": "Remix: 股票市场热度分发与舆情终端",
+  "description": "实时每十分钟抓取分析主流财经论坛、社区及交易网站，计算并可视化各行业板块与热门股票的实时热力值变化和历史演变。",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
