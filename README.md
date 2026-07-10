@@ -34,8 +34,10 @@ stock-analysis/
 
 1. **Phase 1**：云上 Postgres + 选股入池 + 快照 — 见 [`collector/README.md`](collector/README.md)
 2. **Phase 2**：日线回填（可后台 `nohup`）
-3. **Phase 3（已接通）**：Express 热力图读真实库 — 配置 `DATABASE_URL` 后 `npm run dev`
-4. **Phase 4**：行业映射细化、因子与策略回测
+3. **Phase 3**：Express 热力图读真实库 — 配置 `DATABASE_URL` 后 `npm run dev`
+4. **Phase 4**：申万/东财行业 → 题材映射（`sync-sw-industry`）+ 基础因子（`compute-factors`）
+
+观察对象是 **半导体 / 军工 / 证券 / 电力** 等题材，不是沪深创业板。
 
 ### 热力图接真库
 
