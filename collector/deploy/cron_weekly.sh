@@ -8,7 +8,6 @@ source .venv/bin/activate
 
 python -m src.cli sync-instruments
 python -m src.cli sync-fundamentals
-# Industry classification (Shenwan, EM fallback) — can take 30~60+ minutes
 python -m src.cli sync-sw-industry --sleep 1.0
 python -m src.cli ingest-bars --days 30 --sleep 2
 python -m src.cli rebuild-universe
