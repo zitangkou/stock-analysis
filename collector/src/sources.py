@@ -340,6 +340,8 @@ def fetch_financial_indicator_akshare() -> pd.DataFrame:
             take("revenue_yoy", s)
         elif "营业总收入" in cl:
             take("revenue", s)
+        elif "所处行业" in cl or cl == "行业":
+            take("industry", s)
         elif "公告日期" in cl:
             take("announce_date", s)
         elif "截止日期" in cl or "报告期" in cl:

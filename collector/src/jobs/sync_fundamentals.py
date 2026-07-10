@@ -30,7 +30,12 @@ def run() -> int:
         df = fetch_financial_indicator_akshare()
         rows = 0
         skipped = 0
+        industry_updated = 0
         with get_conn() as conn:
+            # Ensure industry column exists (idempotent)
+            conn.execute(
+                "ALTER TABLE instruments ADD COLUMN IF NOT EXISTS industry TEXT"
+            )
             for _, r in df.iterrows():
                 code = normalize_code(r["code"])
                 if board_of(code) is None:
@@ -40,6 +45,12 @@ def run() -> int:
                     continue
                 report_date = _parse_date(r.get("report_date")) or _default_report_date()
                 announce_date = _parse_date(r.get("announce_date"))
+                industry = r.get("industry")
+                if industry is not None and not (isinstance(industry, float) and pd.isna(industry)):
+                    industry = str(industry).strip() or None
+                else:
+                    industry = None
+
                 conn.execute(
                     """
                     INSERT INTO fundamentals_period (
@@ -71,14 +82,29 @@ def run() -> int:
                         _num(r.get("revenue_yoy")),
                     ),
                 )
+                if industry:
+                    conn.execute(
+                        """
+                        UPDATE instruments
+                        SET industry = %s, updated_at = NOW()
+                        WHERE code = %s
+                        """,
+                        (industry, code),
+                    )
+                    industry_updated += 1
                 rows += 1
         finish_job(
             job_id,
             "success",
             rows_affected=rows,
-            message=f"upserted {rows}, skipped_unknown={skipped}",
+            message=f"upserted {rows}, industry={industry_updated}, skipped_unknown={skipped}",
         )
-        logger.info("fundamentals upserted=%s skipped=%s", rows, skipped)
+        logger.info(
+            "fundamentals upserted=%s industry=%s skipped=%s",
+            rows,
+            industry_updated,
+            skipped,
+        )
         return rows
     except Exception as exc:
         finish_job(job_id, "failed", message=str(exc))

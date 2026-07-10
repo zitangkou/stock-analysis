@@ -1,10 +1,16 @@
 import type { MarketDataPoint, MarketState, ScrapeLog, Sector, Stock } from "../src/types.js";
 import { query } from "./db.js";
+import {
+  resolveThemeSector,
+  THEME_SECTORS,
+  themeName,
+} from "./sectorThemes.js";
 
 type QuoteRow = {
   code: string;
   name: string;
   board: string;
+  industry: string | null;
   price: number | string | null;
   change_pct: number | string | null;
   amount: number | string | null;
@@ -15,16 +21,9 @@ type QuoteRow = {
 
 type SnapshotAgg = {
   bucket: Date;
-  board: string;
+  theme_id: string;
   avg_change: number | string | null;
   avg_heat: number | string | null;
-  sample_n: number | string | null;
-};
-
-const BOARD_META: Record<string, { id: string; name: string }> = {
-  SH_MAIN: { id: "sh_main", name: "沪市主板" },
-  SZ_MAIN: { id: "sz_main", name: "深市主板" },
-  CHINEXT: { id: "chinext", name: "创业板" },
 };
 
 function num(v: unknown, fallback = 0): number {
@@ -35,7 +34,6 @@ function num(v: unknown, fallback = 0): number {
 
 /** Map change% + amount rank into 0-100 heat. */
 function stockHeat(changePct: number, amountRank: number): number {
-  // change: -10%..+10% → 0..70, amount rank 0..1 → 0..30
   const changeScore = Math.max(0, Math.min(70, ((changePct + 10) / 20) * 70));
   const amountScore = Math.max(0, Math.min(30, amountRank * 30));
   return Math.round(Math.max(5, Math.min(100, changeScore + amountScore)));
@@ -47,46 +45,76 @@ function sentimentFromChange(changePct: number): Stock["sentiment"] {
   return "neutral";
 }
 
-function boardHeat(stocks: Stock[]): number {
+function sectorHeat(stocks: Stock[]): number {
   if (!stocks.length) return 40;
-  const avg =
-    stocks.reduce((s, x) => s + x.heat, 0) / stocks.length;
+  // Weight top names more — closer to "题材热度" feel
+  const top = stocks.slice(0, 15);
+  const avg = top.reduce((s, x) => s + x.heat, 0) / top.length;
   return Math.round(Math.max(10, Math.min(100, avg)));
 }
 
-function boardChange(stocks: Stock[]): number {
+function sectorChange(stocks: Stock[]): number {
   if (!stocks.length) return 0;
-  const avg =
-    stocks.reduce((s, x) => s + x.change, 0) / stocks.length;
+  const top = stocks.slice(0, 15);
+  const avg = top.reduce((s, x) => s + x.change, 0) / top.length;
   return Math.round(avg * 100) / 100;
 }
 
 export async function getRealMarketState(): Promise<MarketState> {
-  const rows = await query<QuoteRow>(
-    `
-    SELECT
-      i.code,
-      i.name,
-      i.board,
-      q.price,
-      q.change_pct,
-      q.amount,
-      q.volume,
-      q.turnover_rate,
-      q.ts
-    FROM universe_members um
-    JOIN instruments i ON i.code = um.code
-    LEFT JOIN quotes_latest q ON q.code = um.code
-    WHERE um.effective_to IS NULL
-      AND i.board IN ('SH_MAIN', 'SZ_MAIN', 'CHINEXT')
-    `
-  );
+  // Prefer industry column; fall back if migration not applied yet
+  let rows: QuoteRow[];
+  try {
+    rows = await query<QuoteRow>(
+      `
+      SELECT
+        i.code,
+        i.name,
+        i.board,
+        COALESCE(i.industry, '') AS industry,
+        q.price,
+        q.change_pct,
+        q.amount,
+        q.volume,
+        q.turnover_rate,
+        q.ts
+      FROM universe_members um
+      JOIN instruments i ON i.code = um.code
+      LEFT JOIN quotes_latest q ON q.code = um.code
+      WHERE um.effective_to IS NULL
+        AND i.board IN ('SH_MAIN', 'SZ_MAIN', 'CHINEXT')
+      `
+    );
+  } catch {
+    rows = await query<QuoteRow>(
+      `
+      SELECT
+        i.code,
+        i.name,
+        i.board,
+        '' AS industry,
+        q.price,
+        q.change_pct,
+        q.amount,
+        q.volume,
+        q.turnover_rate,
+        q.ts
+      FROM universe_members um
+      JOIN instruments i ON i.code = um.code
+      LEFT JOIN quotes_latest q ON q.code = um.code
+      WHERE um.effective_to IS NULL
+        AND i.board IN ('SH_MAIN', 'SZ_MAIN', 'CHINEXT')
+      `
+    );
+  }
 
   if (!rows.length) {
     throw new Error("股池为空或尚无行情，请先在云上完成 bootstrap / ingest-quotes");
   }
 
-  const amounts = rows.map((r) => num(r.amount)).filter((a) => a > 0).sort((a, b) => a - b);
+  const amounts = rows
+    .map((r) => num(r.amount))
+    .filter((a) => a > 0)
+    .sort((a, b) => a - b);
   const amountRank = (amount: number): number => {
     if (!amounts.length || amount <= 0) return 0;
     let lo = 0;
@@ -99,12 +127,18 @@ export async function getRealMarketState(): Promise<MarketState> {
     return lo / Math.max(amounts.length - 1, 1);
   };
 
-  const byBoard = new Map<string, Stock[]>();
+  const byTheme = new Map<string, Stock[]>();
   let latestTs: Date | null = null;
+  let mapped = 0;
 
   for (const r of rows) {
-    const meta = BOARD_META[r.board];
-    if (!meta) continue;
+    const themeId = resolveThemeSector({
+      code: r.code,
+      industry: r.industry || null,
+    });
+    if (!themeId) continue;
+    mapped += 1;
+
     const change = num(r.change_pct);
     const price = num(r.price);
     const heat = stockHeat(change, amountRank(num(r.amount)));
@@ -118,9 +152,9 @@ export async function getRealMarketState(): Promise<MarketState> {
       discussionCount: Math.round(heat * 8 + amountRank(num(r.amount)) * 200),
       rank: 0,
     };
-    const list = byBoard.get(meta.id) || [];
+    const list = byTheme.get(themeId) || [];
     list.push(stock);
-    byBoard.set(meta.id, list);
+    byTheme.set(themeId, list);
 
     if (r.ts) {
       const t = r.ts instanceof Date ? r.ts : new Date(r.ts);
@@ -128,44 +162,56 @@ export async function getRealMarketState(): Promise<MarketState> {
     }
   }
 
-  const currentSectors: Sector[] = Object.values(BOARD_META).map((meta) => {
-    const stocks = (byBoard.get(meta.id) || [])
+  const currentSectors: Sector[] = THEME_SECTORS.map((meta) => {
+    const stocks = (byTheme.get(meta.id) || [])
       .sort((a, b) => b.heat - a.heat)
       .map((s, idx) => ({ ...s, rank: idx + 1 }));
-    const top = stocks.slice(0, 30);
-    const heat = boardHeat(top.length ? top : stocks.slice(0, 50));
-    const change = boardChange(top.length ? top : stocks.slice(0, 50));
-    const leaders = top.slice(0, 3).map((s) => s.name).join("、");
+    const top = stocks.slice(0, 20);
+    const heat = sectorHeat(top.length ? top : stocks);
+    const change = sectorChange(top.length ? top : stocks);
+    const leaders = top
+      .slice(0, 3)
+      .map((s) => s.name)
+      .join("、");
     return {
       id: meta.id,
       name: meta.name,
       heat,
       change,
-      sentimentScore: Math.round(50 + change * 8),
+      sentimentScore: Math.max(
+        0,
+        Math.min(100, Math.round(50 + change * 8))
+      ),
       hotStocks: top,
       description: leaders
-        ? `${meta.name}热度靠前：${leaders}等（基于涨跌幅与成交额）`
-        : `${meta.name}暂无足够行情样本`,
+        ? `${meta.name}盘中活跃：${leaders}等（涨跌幅+成交额热度）`
+        : `${meta.name}暂无足够入池样本，待行业字段补全后自动扩容`,
     };
-  }).filter((s) => s.hotStocks.length > 0);
+  });
 
-  // Prefer snapshot timeline; fall back to single latest point
-  let timeline = await buildTimelineFromSnapshots(currentSectors);
+  // Keep sectors with at least 1 stock first; empty ones still shown with low heat for UI stability
+  const nonEmpty = currentSectors.filter((s) => s.hotStocks.length > 0);
+  const sectorsOut = nonEmpty.length >= 3 ? nonEmpty : currentSectors;
+
+  let timeline = await buildTimelineFromSnapshots(sectorsOut);
   if (!timeline.length) {
-    timeline = [buildPointFromSectors(currentSectors, latestTs)];
+    timeline = [buildPointFromSectors(sectorsOut, latestTs)];
   }
 
   const quoteCount = rows.filter((r) => r.price != null).length;
   return {
     timeline,
-    currentSectors,
+    currentSectors: sectorsOut,
     lastUpdated: (latestTs || new Date()).toISOString(),
     isLiveScraping: false,
-    statusMessage: `真实行情 · 股池 ${rows.length} · 有报价 ${quoteCount} · 板块按交易所划分`,
+    statusMessage: `真实行情 · 题材板块映射 ${mapped}/${rows.length} · 有报价 ${quoteCount}`,
   };
 }
 
-function buildPointFromSectors(sectors: Sector[], ts: Date | null): MarketDataPoint {
+function buildPointFromSectors(
+  sectors: Sector[],
+  ts: Date | null
+): MarketDataPoint {
   const time = formatCnTime(ts || new Date());
   const sectorsMap: MarketDataPoint["sectors"] = {};
   const stocksMap: MarketDataPoint["stocks"] = {};
@@ -187,63 +233,88 @@ function buildPointFromSectors(sectors: Sector[], ts: Date | null): MarketDataPo
   return { time, sectors: sectorsMap, stocks: stocksMap };
 }
 
-async function buildTimelineFromSnapshots(currentSectors: Sector[]): Promise<MarketDataPoint[]> {
+async function buildTimelineFromSnapshots(
+  currentSectors: Sector[]
+): Promise<MarketDataPoint[]> {
   try {
-    const aggs = await query<SnapshotAgg>(
+    // Approximate theme heat over time using latest sector membership + snapshot changes
+    const codeTheme = new Map<string, string>();
+    for (const sec of currentSectors) {
+      for (const s of sec.hotStocks) {
+        codeTheme.set(s.code, sec.id);
+      }
+    }
+    if (!codeTheme.size) return [];
+
+    const codes = [...codeTheme.keys()];
+    const aggs = await query<{
+      bucket: Date;
+      code: string;
+      change_pct: number | string | null;
+      amount: number | string | null;
+    }>(
       `
       SELECT
         date_trunc('minute', qs.ts) AS bucket,
-        i.board,
-        AVG(qs.change_pct) AS avg_change,
-        AVG(
-          GREATEST(5, LEAST(100,
-            ((COALESCE(qs.change_pct, 0) + 10) / 20.0) * 70
-            + LEAST(30, LN(GREATEST(COALESCE(qs.amount, 1), 1)) )
-          ))
-        ) AS avg_heat,
-        COUNT(*) AS sample_n
+        qs.code,
+        qs.change_pct,
+        qs.amount
       FROM quotes_snapshot qs
-      JOIN instruments i ON i.code = qs.code
-      JOIN universe_members um ON um.code = qs.code AND um.effective_to IS NULL
       WHERE qs.ts > NOW() - INTERVAL '2 days'
-        AND i.board IN ('SH_MAIN', 'SZ_MAIN', 'CHINEXT')
-      GROUP BY 1, 2
+        AND qs.code = ANY($1::char(6)[])
       ORDER BY 1 ASC
-      `
+      `,
+      [codes]
     );
     if (!aggs.length) return [];
 
-    const byBucket = new Map<string, SnapshotAgg[]>();
+    type BucketAcc = {
+      [themeId: string]: { changes: number[]; heats: number[] };
+    };
+    const byBucket = new Map<string, BucketAcc>();
+
     for (const row of aggs) {
+      const themeId = codeTheme.get(row.code);
+      if (!themeId) continue;
       const key = new Date(row.bucket).toISOString();
-      const list = byBucket.get(key) || [];
-      list.push(row);
-      byBucket.set(key, list);
+      const acc = byBucket.get(key) || {};
+      if (!acc[themeId]) acc[themeId] = { changes: [], heats: [] };
+      const ch = num(row.change_pct);
+      const heat = stockHeat(ch, 0.5);
+      acc[themeId].changes.push(ch);
+      acc[themeId].heats.push(heat);
+      byBucket.set(key, acc);
     }
 
-    // Keep at most ~48 points
     const keys = [...byBucket.keys()];
     const step = Math.max(1, Math.floor(keys.length / 48));
     const sampled = keys.filter((_, i) => i % step === 0);
 
     return sampled.map((key) => {
-      const rows = byBucket.get(key) || [];
+      const acc = byBucket.get(key) || {};
       const ts = new Date(key);
       const sectors: MarketDataPoint["sectors"] = {};
       const stocks: MarketDataPoint["stocks"] = {};
-      for (const meta of Object.values(BOARD_META)) {
-        const boardKey = Object.entries(BOARD_META).find(([, v]) => v.id === meta.id)?.[0];
-        const hit = rows.find((r) => r.board === boardKey);
-        const cur = currentSectors.find((s) => s.id === meta.id);
-        const heat = hit ? Math.round(num(hit.avg_heat, cur?.heat || 50)) : cur?.heat || 50;
-        const change = hit ? Math.round(num(hit.avg_change) * 100) / 100 : cur?.change || 0;
-        sectors[meta.id] = {
+      for (const sec of currentSectors) {
+        const cur = acc[sec.id];
+        const heat = cur?.heats.length
+          ? Math.round(
+              cur.heats.reduce((a, b) => a + b, 0) / cur.heats.length
+            )
+          : sec.heat;
+        const change = cur?.changes.length
+          ? Math.round(
+              (cur.changes.reduce((a, b) => a + b, 0) / cur.changes.length) *
+                100
+            ) / 100
+          : sec.change;
+        sectors[sec.id] = {
           heat,
           change,
-          sentimentScore: Math.round(50 + change * 8),
-          description: cur?.description,
+          sentimentScore: Math.max(0, Math.min(100, Math.round(50 + change * 8))),
+          description: sec.description,
         };
-        stocks[meta.id] = (cur?.hotStocks || []).slice(0, 10).map((s) => ({
+        stocks[sec.id] = sec.hotStocks.slice(0, 10).map((s) => ({
           code: s.code,
           name: s.name,
           heat: s.heat,
@@ -270,7 +341,6 @@ function formatCnTime(d: Date): string {
 }
 
 export async function getRealScrapeLogs(): Promise<ScrapeLog[]> {
-  // Placeholder until news ingest exists — surface data freshness as logs
   const rows = await query<{ cnt: string; max_ts: Date | null }>(
     `
     SELECT COUNT(*)::text AS cnt, MAX(ts) AS max_ts
@@ -289,10 +359,10 @@ export async function getRealScrapeLogs(): Promise<ScrapeLog[]> {
     },
     {
       time: formatCnTime(new Date()),
-      source: "universe",
-      title: "板块按沪市主板 / 深市主板 / 创业板聚合，热度=涨跌幅+成交额",
+      source: "theme_sectors",
+      title: `观察对象：${THEME_SECTORS.map((s) => themeName(s.id).replace(/与.*/, "")).join("、")}等题材板块（非交易所板块）`,
       sentiment: "positive",
-      weight: 4,
+      weight: 5,
     },
   ];
 }

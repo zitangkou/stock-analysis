@@ -98,18 +98,26 @@ def cmd_init_db() -> int:
 
     from src.config import get_settings
 
-    schema = ROOT / "sql" / "001_schema.sql"
-    raw = schema.read_text(encoding="utf-8")
-    # Strip line comments, split into statements (psycopg executes one at a time)
-    no_line_comments = "\n".join(
-        line for line in raw.splitlines() if not line.strip().startswith("--")
-    )
-    statements = [s.strip() for s in re.split(r";\s*\n", no_line_comments) if s.strip()]
+    sql_dir = ROOT / "sql"
+    files = sorted(sql_dir.glob("*.sql"))
+    if not files:
+        raise RuntimeError(f"No SQL files in {sql_dir}")
 
+    total = 0
     with psycopg.connect(get_settings().database_url, autocommit=True) as conn:
-        for stmt in statements:
-            conn.execute(stmt)
-    print(f"Applied schema: {schema} ({len(statements)} statements)")
+        for schema in files:
+            raw = schema.read_text(encoding="utf-8")
+            no_line_comments = "\n".join(
+                line for line in raw.splitlines() if not line.strip().startswith("--")
+            )
+            statements = [
+                s.strip() for s in re.split(r";\s*\n", no_line_comments) if s.strip()
+            ]
+            for stmt in statements:
+                conn.execute(stmt)
+                total += 1
+            print(f"Applied schema: {schema.name} ({len(statements)} statements)")
+    print(f"Done. {len(files)} files, {total} statements.")
     return 0
 
 
