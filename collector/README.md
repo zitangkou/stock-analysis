@@ -81,6 +81,23 @@ python -m src.cli rebuild-universe
 
 被断开后先停 10–30 分钟再试，不要连续重跑 `ingest-bars` / `ingest-quotes`。
 
+## 申万行业 → 题材映射
+
+```bash
+python -m src.cli init-db
+# 建议后台跑（全量较久）
+nohup python -m src.cli sync-sw-industry --sleep 1.0 > /var/log/stock-sw-industry.log 2>&1 &
+tail -f /var/log/stock-sw-industry.log
+```
+
+成功后 `instruments.theme_id` 会写入 `semiconductor` / `military` / `finance` 等，热力图按题材聚合。
+
+基础因子（可选）：
+
+```bash
+python -m src.cli compute-factors --days 60
+```
+
 强制纳入/剔除：
 
 ```sql

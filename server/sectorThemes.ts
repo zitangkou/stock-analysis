@@ -150,8 +150,12 @@ export function themeFromIndustry(industry: string | null | undefined): string |
 
 export function resolveThemeSector(opts: {
   code: string;
+  themeId?: string | null;
   industry?: string | null;
 }): string | null {
+  if (opts.themeId && THEME_SECTORS.some((s) => s.id === opts.themeId)) {
+    return opts.themeId;
+  }
   const byCode = CODE_TO_THEME[opts.code];
   if (byCode) return byCode;
   return themeFromIndustry(opts.industry);

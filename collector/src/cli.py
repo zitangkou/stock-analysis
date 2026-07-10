@@ -26,6 +26,11 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("sync-calendar", help="Sync trading calendar")
     sub.add_parser("sync-instruments", help="Sync SH/SZ main + ChiNext instruments")
     sub.add_parser("sync-fundamentals", help="Sync latest fundamentals for scoring")
+    p_sw = sub.add_parser("sync-sw-industry", help="Sync Shenwan/EM industry → theme_id")
+    p_sw.add_argument("--sleep", type=float, default=1.0, help="Sleep between industries")
+    p_sw.add_argument("--limit", type=int, default=None, help="Only first N industries (debug)")
+    p_fac = sub.add_parser("compute-factors", help="Compute basic daily factors from bars")
+    p_fac.add_argument("--days", type=int, default=60, help="Lookback calendar days")
     p_uni = sub.add_parser("rebuild-universe", help="Rebuild ~2000 quality universe")
     p_uni.add_argument("--dry-run", action="store_true", help="Score only, do not write members")
 
@@ -63,6 +68,16 @@ def main(argv: list[str] | None = None) -> int:
         from src.jobs.sync_fundamentals import run
 
         run()
+        return 0
+    if args.cmd == "sync-sw-industry":
+        from src.jobs.sync_sw_industry import run
+
+        run(sleep=args.sleep, limit=args.limit)
+        return 0
+    if args.cmd == "compute-factors":
+        from src.jobs.compute_factors import run
+
+        run(days=args.days)
         return 0
     if args.cmd == "rebuild-universe":
         from src.jobs.rebuild_universe import run

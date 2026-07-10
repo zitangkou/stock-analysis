@@ -239,10 +239,34 @@ ${logsText}
     }
   });
 
-  app.get("/api/health", (_req, res) => {
+  app.get("/api/health", async (_req, res) => {
+    let themeStats: Record<string, unknown> | undefined;
+    if (useRealData) {
+      try {
+        const { query } = await import("./server/db.js");
+        const rows = await query<{
+          universe: string;
+          with_theme: string;
+          with_sw: string;
+        }>(
+          `
+          SELECT
+            (SELECT COUNT(*)::text FROM universe_members WHERE effective_to IS NULL) AS universe,
+            (SELECT COUNT(*)::text FROM instruments i
+               JOIN universe_members um ON um.code = i.code AND um.effective_to IS NULL
+              WHERE i.theme_id IS NOT NULL) AS with_theme,
+            (SELECT COUNT(*)::text FROM instrument_sw) AS with_sw
+          `
+        );
+        themeStats = rows[0];
+      } catch {
+        themeStats = { error: "stats_unavailable" };
+      }
+    }
     res.json({
       status: "healthy",
       mode: useRealData ? "postgres" : "mock",
+      themeStats,
       timestamp: new Date().toISOString(),
     });
   });

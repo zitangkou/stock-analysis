@@ -11,6 +11,10 @@ type QuoteRow = {
   name: string;
   board: string;
   industry: string | null;
+  theme_id: string | null;
+  sw_l1: string | null;
+  sw_l2: string | null;
+  sw_l3: string | null;
   price: number | string | null;
   change_pct: number | string | null;
   amount: number | string | null;
@@ -61,7 +65,6 @@ function sectorChange(stocks: Stock[]): number {
 }
 
 export async function getRealMarketState(): Promise<MarketState> {
-  // Prefer industry column; fall back if migration not applied yet
   let rows: QuoteRow[];
   try {
     rows = await query<QuoteRow>(
@@ -71,6 +74,10 @@ export async function getRealMarketState(): Promise<MarketState> {
         i.name,
         i.board,
         COALESCE(i.industry, '') AS industry,
+        i.theme_id,
+        i.sw_l1,
+        i.sw_l2,
+        i.sw_l3,
         q.price,
         q.change_pct,
         q.amount,
@@ -91,7 +98,11 @@ export async function getRealMarketState(): Promise<MarketState> {
         i.code,
         i.name,
         i.board,
-        '' AS industry,
+        COALESCE(i.industry, '') AS industry,
+        NULL::text AS theme_id,
+        NULL::text AS sw_l1,
+        NULL::text AS sw_l2,
+        NULL::text AS sw_l3,
         q.price,
         q.change_pct,
         q.amount,
@@ -134,7 +145,8 @@ export async function getRealMarketState(): Promise<MarketState> {
   for (const r of rows) {
     const themeId = resolveThemeSector({
       code: r.code,
-      industry: r.industry || null,
+      themeId: r.theme_id,
+      industry: r.industry || r.sw_l2 || r.sw_l1 || null,
     });
     if (!themeId) continue;
     mapped += 1;
@@ -199,12 +211,13 @@ export async function getRealMarketState(): Promise<MarketState> {
   }
 
   const quoteCount = rows.filter((r) => r.price != null).length;
+  const themedInDb = rows.filter((r) => r.theme_id).length;
   return {
     timeline,
     currentSectors: sectorsOut,
     lastUpdated: (latestTs || new Date()).toISOString(),
     isLiveScraping: false,
-    statusMessage: `真实行情 · 题材板块映射 ${mapped}/${rows.length} · 有报价 ${quoteCount}`,
+    statusMessage: `真实行情 · 题材映射 ${mapped}/${rows.length}（库内theme ${themedInDb}）· 报价 ${quoteCount}`,
   };
 }
 
