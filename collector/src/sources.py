@@ -20,16 +20,32 @@ EASTMONEY_SPOT_URL = "https://push2.eastmoney.com/api/qt/clist/get"
 
 
 def fetch_a_share_spot() -> pd.DataFrame:
-    """Fetch A-share spot list via Eastmoney, filter to 60/00/30."""
+    """Fetch A-share spot list; Eastmoney first, akshare fallback."""
+    try:
+        df = _fetch_eastmoney_spot()
+        if not df.empty:
+            return df
+        logger.warning("eastmoney spot empty, falling back to akshare")
+    except Exception as exc:
+        logger.warning("eastmoney spot failed (%s), falling back to akshare", exc)
+    return _fetch_akshare_spot()
+
+
+def _fetch_eastmoney_spot() -> pd.DataFrame:
     frames: list[pd.DataFrame] = []
-    # Paginate eastmoney clist
     page = 1
     page_size = 100
     fields = "f12,f14,f2,f3,f4,f5,f6,f7,f8,f15,f16,f17,f18"
-    # Combined SH+SZ A shares
     fs = "m:0+t:6,m:0+t:80,m:1+t:2"
+    last_exc: Exception | None = None
 
-    with httpx.Client(timeout=30.0, headers={"User-Agent": "stock-analysis-collector/0.1"}) as client:
+    with httpx.Client(
+        timeout=30.0,
+        headers={
+            "User-Agent": "Mozilla/5.0 (compatible; stock-analysis-collector/0.1)",
+            "Referer": "https://quote.eastmoney.com/",
+        },
+    ) as client:
         while True:
             params = {
                 "pn": page,
@@ -42,10 +58,23 @@ def fetch_a_share_spot() -> pd.DataFrame:
                 "fs": fs,
                 "fields": fields,
             }
-            resp = client.get(EASTMONEY_SPOT_URL, params=params)
-            resp.raise_for_status()
-            data = resp.json().get("data") or {}
-            diff = data.get("diff") or []
+            ok = False
+            for attempt in range(3):
+                try:
+                    resp = client.get(EASTMONEY_SPOT_URL, params=params)
+                    resp.raise_for_status()
+                    data = resp.json().get("data") or {}
+                    diff = data.get("diff") or []
+                    ok = True
+                    break
+                except Exception as exc:
+                    last_exc = exc
+                    time.sleep(1.5 * (attempt + 1))
+            if not ok:
+                if frames:
+                    logger.warning("eastmoney stopped at page %s (%s), using partial", page, last_exc)
+                    break
+                raise last_exc or RuntimeError("eastmoney spot failed")
             if not diff:
                 break
             frames.append(pd.DataFrame(diff))
@@ -53,29 +82,58 @@ def fetch_a_share_spot() -> pd.DataFrame:
             if page * page_size >= total:
                 break
             page += 1
-            time.sleep(0.2)
+            time.sleep(0.35)
 
     if not frames:
         return pd.DataFrame()
-
-    df = pd.concat(frames, ignore_index=True)
-    df = df.rename(
-        columns={
-            "f12": "code",
-            "f14": "name",
-            "f2": "price",
-            "f3": "change_pct",
-            "f4": "change_amt",
-            "f5": "volume",
-            "f6": "amount",
-            "f7": "amplitude",
-            "f8": "turnover_rate",
-            "f15": "high",
-            "f16": "low",
-            "f17": "open",
-            "f18": "pre_close",
-        }
+    return _normalize_spot_df(
+        pd.concat(frames, ignore_index=True).rename(
+            columns={
+                "f12": "code",
+                "f14": "name",
+                "f2": "price",
+                "f3": "change_pct",
+                "f4": "change_amt",
+                "f5": "volume",
+                "f6": "amount",
+                "f7": "amplitude",
+                "f8": "turnover_rate",
+                "f15": "high",
+                "f16": "low",
+                "f17": "open",
+                "f18": "pre_close",
+            }
+        )
     )
+
+
+def _fetch_akshare_spot() -> pd.DataFrame:
+    import akshare as ak
+
+    df = ak.stock_zh_a_spot_em()
+    rename = {
+        "代码": "code",
+        "名称": "name",
+        "最新价": "price",
+        "涨跌幅": "change_pct",
+        "涨跌额": "change_amt",
+        "成交量": "volume",
+        "成交额": "amount",
+        "振幅": "amplitude",
+        "换手率": "turnover_rate",
+        "最高": "high",
+        "最低": "low",
+        "今开": "open",
+        "昨收": "pre_close",
+    }
+    df = df.rename(columns={k: v for k, v in rename.items() if k in df.columns})
+    return _normalize_spot_df(df)
+
+
+def _normalize_spot_df(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty or "code" not in df.columns:
+        return pd.DataFrame()
+    df = df.copy()
     df["code"] = df["code"].map(normalize_code)
     df = df[df["code"].map(lambda c: board_of(c) is not None)].copy()
     for col in [
@@ -93,11 +151,12 @@ def fetch_a_share_spot() -> pd.DataFrame:
     ]:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
+    if "name" not in df.columns:
+        df["name"] = df["code"]
     df["exchange"] = df["code"].map(exchange_of)
     df["board"] = df["code"].map(board_of)
     df["is_st"] = df["name"].map(is_st_name)
     return df.drop_duplicates(subset=["code"], keep="first")
-
 
 def fetch_instruments_akshare() -> pd.DataFrame:
     """Fallback / enrichment: stock list via akshare."""

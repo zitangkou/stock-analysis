@@ -92,8 +92,15 @@ def run(apply: bool = True) -> dict:
             yoy = _f(f.get("net_profit_yoy"))
             avg_amt = liq_map.get(code) or spot_amt.get(code) or 0.0
 
-            if code not in force_in and avg_amt < settings.min_avg_amount_20d and liq_map:
-                # Only enforce liquidity filter when we have bar history
+            # Soften liquidity gate: only enforce when we have bar history OR spot amount
+            if code not in force_in and liq_map and avg_amt < settings.min_avg_amount_20d:
+                continue
+            if (
+                code not in force_in
+                and not liq_map
+                and spot_amt
+                and avg_amt < settings.min_avg_amount_20d
+            ):
                 continue
 
             # Require some fundamental signal unless force_in

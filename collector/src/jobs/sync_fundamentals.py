@@ -6,7 +6,7 @@ from datetime import datetime
 import pandas as pd
 
 from ..codes import board_of, normalize_code
-from ..db import finish_job, get_conn, start_job
+from ..db import fetch_all, finish_job, get_conn, start_job
 from ..sources import fetch_financial_indicator_akshare
 
 logger = logging.getLogger(__name__)
@@ -15,12 +15,28 @@ logger = logging.getLogger(__name__)
 def run() -> int:
     job_id = start_job("sync_fundamentals")
     try:
+        known = {
+            r["code"]
+            for r in fetch_all(
+                """
+                SELECT code FROM instruments
+                WHERE board IN ('SH_MAIN', 'SZ_MAIN', 'CHINEXT')
+                """
+            )
+        }
+        if not known:
+            raise RuntimeError("No instruments. Run sync-instruments first.")
+
         df = fetch_financial_indicator_akshare()
         rows = 0
+        skipped = 0
         with get_conn() as conn:
             for _, r in df.iterrows():
                 code = normalize_code(r["code"])
                 if board_of(code) is None:
+                    continue
+                if code not in known:
+                    skipped += 1
                     continue
                 report_date = _parse_date(r.get("report_date")) or _default_report_date()
                 announce_date = _parse_date(r.get("announce_date"))
@@ -56,7 +72,13 @@ def run() -> int:
                     ),
                 )
                 rows += 1
-        finish_job(job_id, "success", rows_affected=rows, message=f"upserted {rows} fundamentals")
+        finish_job(
+            job_id,
+            "success",
+            rows_affected=rows,
+            message=f"upserted {rows}, skipped_unknown={skipped}",
+        )
+        logger.info("fundamentals upserted=%s skipped=%s", rows, skipped)
         return rows
     except Exception as exc:
         finish_job(job_id, "failed", message=str(exc))
