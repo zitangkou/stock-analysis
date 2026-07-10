@@ -1,0 +1,17 @@
+[Unit]
+Description=A-share quote ingest loop (60s)
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+# 改成你云主机上的实际登录用户（腾讯云常见 ubuntu / root）
+User=ubuntu
+WorkingDirectory=/opt/stock-analysis/collector
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/stock-analysis/collector/.venv/bin/python -m src.cli run-quotes
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

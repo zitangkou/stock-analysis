@@ -6,3 +6,8 @@ coverage/
 *.log
 .env*
 !.env.example
+collector/.venv/
+collector/**/__pycache__/
+collector/**/*.pyc
+*.egg-info/
+.pytest_cache/
