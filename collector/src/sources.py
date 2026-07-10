@@ -116,68 +116,95 @@ def fetch_instruments_akshare() -> pd.DataFrame:
 
 def fetch_financial_indicator_akshare() -> pd.DataFrame:
     """
-    Latest financial indicators for scoring.
-    Uses akshare stock_financial_analysis_indicator_em style if available;
-    falls back to stock_yjbb_em (业绩报表).
+    Latest financial indicators for scoring via stock_yjbb_em (业绩报表).
+    Tries several report periods until one returns data.
     """
     import akshare as ak
 
-    # 业绩报表：含净利润、同比增长等
-    try:
-        df = ak.stock_yjbb_em(date=_guess_report_period())
-    except Exception as exc:
-        logger.warning("stock_yjbb_em failed (%s), trying alternate date", exc)
-        df = ak.stock_yjbb_em(date="20241231")
+    df = None
+    last_exc: Exception | None = None
+    for period in _report_period_candidates():
+        try:
+            logger.info("fetching yjbb for period %s", period)
+            cand = ak.stock_yjbb_em(date=period)
+            if cand is not None and len(cand) > 0:
+                df = cand
+                break
+        except Exception as exc:
+            last_exc = exc
+            logger.warning("stock_yjbb_em(%s) failed: %s", period, exc)
+    if df is None:
+        raise RuntimeError(f"stock_yjbb_em failed for all periods: {last_exc}")
 
-    # Normalize common column names across akshare versions
-    colmap = {}
+    logger.info("yjbb columns: %s", list(df.columns))
+    series_map: dict[str, pd.Series] = {}
+
+    def take(target: str, series: pd.Series) -> None:
+        if target not in series_map:
+            series_map[target] = series
+
     for c in df.columns:
         cl = str(c)
+        s = df[c]
+        if isinstance(s, pd.DataFrame):
+            s = s.iloc[:, 0]
         if "代码" in cl:
-            colmap[c] = "code"
-        elif cl in ("名称", "股票简称"):
-            colmap[c] = "name"
-        elif "净资产收益率" in cl or cl == "ROE":
-            colmap[c] = "roe"
-        elif "净利润" == cl or cl.endswith("净利润"):
-            if "同比" in cl:
-                colmap[c] = "net_profit_yoy"
-            elif "扣非" in cl:
-                colmap[c] = "net_profit_deducted"
-            else:
-                colmap[c] = "net_profit"
+            take("code", s)
+        elif cl in ("名称", "股票简称") or cl.endswith("简称"):
+            take("name", s)
+        elif "净资产收益率" in cl or cl.upper() == "ROE":
+            take("roe", s)
+        elif "扣非" in cl and "净利润" in cl:
+            take("net_profit_deducted", s)
+        elif "净利润" in cl and "同比" in cl:
+            take("net_profit_yoy", s)
+        elif cl == "净利润" or cl.endswith("-净利润") or cl == "净利润-净利润":
+            take("net_profit", s)
         elif "营业总收入" in cl and "同比" in cl:
-            colmap[c] = "revenue_yoy"
+            take("revenue_yoy", s)
         elif "营业总收入" in cl:
-            colmap[c] = "revenue"
+            take("revenue", s)
         elif "公告日期" in cl:
-            colmap[c] = "announce_date"
+            take("announce_date", s)
         elif "截止日期" in cl or "报告期" in cl:
-            colmap[c] = "report_date"
-    df = df.rename(columns=colmap)
-    if "code" not in df.columns:
+            take("report_date", s)
+
+    if "code" not in series_map:
         raise RuntimeError(f"Unexpected yjbb columns: {list(df.columns)}")
 
-    df["code"] = df["code"].map(normalize_code)
-    df = df[df["code"].map(lambda c: board_of(c) is not None)].copy()
+    out = pd.DataFrame(series_map)
+    out["code"] = out["code"].map(normalize_code)
+    out = out[out["code"].map(lambda c: board_of(c) is not None)].copy()
     for col in ["roe", "net_profit", "net_profit_yoy", "net_profit_deducted", "revenue", "revenue_yoy"]:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
-    return df
+        if col in out.columns:
+            out[col] = pd.to_numeric(out[col], errors="coerce")
+    return out
 
 
-def _guess_report_period() -> str:
-    """Pick a recent report period YYYYMMDD for yjbb."""
+def _report_period_candidates() -> list[str]:
+    """Recent report periods YYYYMMDD for yjbb."""
     today = datetime.now()
-    y = today.year
-    candidates = [
+    y, m = today.year, today.month
+    periods = [
         f"{y - 1}1231",
         f"{y}0331",
         f"{y - 1}0930",
         f"{y - 1}0630",
+        f"{y - 1}0331",
+        "20241231",
+        "20240930",
     ]
-    # Prefer last year annual as stable default
-    return candidates[0]
+    # If past April, annual of last year is usually available; keep order above.
+    if m >= 5:
+        periods.insert(0, f"{y - 1}1231")
+    # dedupe preserve order
+    seen: set[str] = set()
+    out: list[str] = []
+    for p in periods:
+        if p not in seen:
+            seen.add(p)
+            out.append(p)
+    return out
 
 
 def fetch_hist_bars_akshare(code: str, start: str, end: str) -> pd.DataFrame:

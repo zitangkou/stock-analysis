@@ -36,7 +36,8 @@ def main(argv: list[str] | None = None) -> int:
 
     p_bars = sub.add_parser("ingest-bars", help="Ingest daily bars for universe")
     p_bars.add_argument("--days", type=int, default=30, help="Lookback calendar days")
-    p_bars.add_argument("--sleep", type=float, default=0.25, help="Sleep between symbols")
+    p_bars.add_argument("--sleep", type=float, default=1.0, help="Sleep between symbols")
+    p_bars.add_argument("--limit", type=int, default=None, help="Only first N universe codes")
 
     sub.add_parser("bootstrap", help="init-db + calendar + instruments + fundamentals + universe")
 
@@ -81,7 +82,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "ingest-bars":
         from src.jobs.ingest_bars import run
 
-        run(days=args.days, sleep=args.sleep)
+        run(days=args.days, sleep=args.sleep, limit=args.limit)
         return 0
     if args.cmd == "bootstrap":
         return cmd_bootstrap()
@@ -111,24 +112,30 @@ def cmd_init_db() -> int:
 
 
 def cmd_bootstrap() -> int:
+    from src.jobs.ingest_quotes import run as ingest_quotes
     from src.jobs.rebuild_universe import run as rebuild_universe
     from src.jobs.sync_calendar import run as sync_calendar
     from src.jobs.sync_fundamentals import run as sync_fundamentals
     from src.jobs.sync_instruments import run as sync_instruments
 
+    log = logging.getLogger(__name__)
     cmd_init_db()
     sync_calendar()
     sync_instruments()
     sync_fundamentals()
-    # Optional short bars help liquidity filter; skip if slow — universe can use spot amount
+    # Spot amounts enable liquidity scoring before daily bars exist
+    try:
+        ingest_quotes(force=True)
+    except Exception as exc:
+        log.warning("ingest-quotes during bootstrap failed: %s", exc)
     try:
         rebuild_universe(apply=True)
     except Exception as exc:
-        logging.getLogger(__name__).warning(
-            "universe rebuild deferred (%s). Run ingest-bars then rebuild-universe.",
+        log.warning(
+            "universe rebuild deferred (%s). Fix fundamentals/quotes then rebuild-universe.",
             exc,
         )
-    print("Bootstrap finished.")
+    print("Bootstrap finished. Next: python -m src.cli ingest-bars --days 30")
     return 0
 
 

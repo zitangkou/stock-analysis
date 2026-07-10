@@ -4,25 +4,45 @@ import logging
 import time
 from datetime import timedelta
 
+from tenacity import retry, stop_after_attempt, wait_exponential
+
 from ..calendar_util import today_cn
 from ..codes import normalize_code
-from ..db import finish_job, get_conn, start_job
+from ..db import fetch_all, finish_job, get_conn, start_job
 from ..sources import fetch_hist_bars_akshare
-from .ingest_quotes import active_universe_codes
 
 logger = logging.getLogger(__name__)
 
 
-def run(days: int = 30, sleep: float = 0.25) -> int:
+def _universe_codes_only() -> list[str]:
+    rows = fetch_all(
+        """
+        SELECT code FROM universe_members
+        WHERE effective_to IS NULL
+        """
+    )
+    return [r["code"] for r in rows]
+
+
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=20), reraise=True)
+def _fetch_bars(code: str, start_s: str, end_s: str):
+    return fetch_hist_bars_akshare(code, start_s, end_s)
+
+
+def run(days: int = 30, sleep: float = 1.0, limit: int | None = None) -> int:
     """
-    Backfill / refresh daily bars for active universe.
-    Keep days modest on first run; use Mac for multi-year backfill.
+    Backfill / refresh daily bars for active universe only.
+    Use longer sleep on cloud IPs to reduce source disconnects.
     """
     job_id = start_job("ingest_bars_1d")
     try:
-        codes = active_universe_codes()
+        codes = _universe_codes_only()
         if not codes:
-            raise RuntimeError("No universe codes. Rebuild universe first (or sync instruments).")
+            raise RuntimeError(
+                "No universe yet. Run: sync-fundamentals → ingest-quotes --force → rebuild-universe"
+            )
+        if limit:
+            codes = codes[:limit]
 
         end = today_cn()
         start = end - timedelta(days=days)
@@ -30,11 +50,12 @@ def run(days: int = 30, sleep: float = 0.25) -> int:
         end_s = end.strftime("%Y%m%d")
         total = 0
         errors = 0
+        consecutive_fail = 0
 
         with get_conn() as conn:
             for i, code in enumerate(codes, 1):
                 try:
-                    df = fetch_hist_bars_akshare(normalize_code(code), start_s, end_s)
+                    df = _fetch_bars(normalize_code(code), start_s, end_s)
                     for _, r in df.iterrows():
                         conn.execute(
                             """
@@ -69,11 +90,23 @@ def run(days: int = 30, sleep: float = 0.25) -> int:
                             ),
                         )
                         total += 1
+                    consecutive_fail = 0
                 except Exception as exc:
                     errors += 1
+                    consecutive_fail += 1
                     logger.warning("bars failed for %s: %s", code, exc)
+                    if consecutive_fail >= 20:
+                        logger.error("too many consecutive failures, aborting bars job")
+                        break
+                    time.sleep(min(5.0, sleep * consecutive_fail))
                 if i % 50 == 0:
-                    logger.info("bars progress %s/%s, rows=%s, errors=%s", i, len(codes), total, errors)
+                    logger.info(
+                        "bars progress %s/%s, rows=%s, errors=%s",
+                        i,
+                        len(codes),
+                        total,
+                        errors,
+                    )
                 time.sleep(sleep)
 
         status = "success" if errors == 0 else "partial"
