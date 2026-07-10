@@ -8,10 +8,10 @@ source .venv/bin/activate
 
 python -m src.cli sync-instruments
 python -m src.cli sync-fundamentals
-python -m src.cli sync-fundamentals
 python -m src.cli apply-themes
 # Optional when Eastmoney is reachable from the server:
 # python -m src.cli sync-sw-industry --prefer em --sleep 1.5
 python -m src.cli ingest-bars --days 30 --sleep 2
 python -m src.cli rebuild-universe
 python -m src.cli ingest-quotes --force
+python -m src.cli compute-heat

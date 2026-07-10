@@ -233,15 +233,24 @@ export default function HeatmapGrid({
     }
   };
 
-  // 根据板块热度和涨跌幅，动态算出一个逼真的“主力资金净流入”和“估算成交额”
-  const calculateCapitalFlow = (sec: Sector, delta: number) => {
-    // 资金计算依赖于基础热度和增速斜率
-    const baseInflow = (sec.heat - 48) * 3.8 + (sec.change * 14.5) + (delta * 5.2);
-    const volumeTurnover = ((sec.heat * 0.16) + 1.2).toFixed(1); // 亿
-    
+  // Prefer persisted proxy inflow; otherwise show "暂无" rather than inventing fake flow.
+  const calculateCapitalFlow = (sec: Sector, _delta: number) => {
+    if (sec.netInflowProxy != null) {
+      return {
+        netInflow: Math.round(sec.netInflowProxy / 1e6), // 百万
+        turnover:
+          sec.stockCount && sec.change != null
+            ? ((sec.heat * 0.16) + 1.2).toFixed(1)
+            : "—",
+        isProxy: true as const,
+        available: true as const,
+      };
+    }
     return {
-      netInflow: Math.round(baseInflow), // 百万 (M)
-      turnover: volumeTurnover // 亿
+      netInflow: 0,
+      turnover: "—",
+      isProxy: true as const,
+      available: false as const,
     };
   };
 
@@ -266,7 +275,7 @@ export default function HeatmapGrid({
           <div className="flex flex-wrap items-center gap-3">
             <h2 className="text-sm font-bold text-slate-200 flex items-center gap-1.5 font-sans">
               <BarChart2 className="w-4.5 h-4.5 text-rose-500" />
-              盘中题材雷达热能矩阵（联动主力资金与高低切换）
+              盘中题材雷达热能矩阵（落库热力 · 资金为代理）
             </h2>
           </div>
           <p className="text-xs text-slate-500 mt-0.5">
@@ -435,18 +444,28 @@ export default function HeatmapGrid({
                   </div>
                 </div>
 
-                {/* 资金确认面 (成交额 & 主力净流入) */}
+                {/* 资金确认面 (成交额 & 净流入代理) */}
                 <div className="grid grid-cols-2 gap-2 mt-2.5">
                   <div className="bg-slate-950/20 border border-slate-800/30 p-1.5 rounded flex flex-col">
-                    <span className="text-[8px] text-slate-500">主力净流入</span>
-                    <span className={`text-[11px] font-bold font-mono mt-0.5 ${cap.netInflow >= 0 ? "text-red-400" : "text-green-400"}`}>
-                      {cap.netInflow >= 0 ? `+¥${cap.netInflow}M` : `¥${cap.netInflow}M`}
+                    <span className="text-[8px] text-slate-500">净流入代理</span>
+                    <span className={`text-[11px] font-bold font-mono mt-0.5 ${
+                      !cap.available
+                        ? "text-slate-500"
+                        : cap.netInflow >= 0
+                          ? "text-red-400"
+                          : "text-green-400"
+                    }`}>
+                      {!cap.available
+                        ? "暂无"
+                        : cap.netInflow >= 0
+                          ? `+¥${cap.netInflow}M`
+                          : `¥${cap.netInflow}M`}
                     </span>
                   </div>
                   <div className="bg-slate-950/20 border border-slate-800/30 p-1.5 rounded flex flex-col">
                     <span className="text-[8px] text-slate-500">估算成交额</span>
                     <span className="text-[11px] font-bold font-mono text-slate-300 mt-0.5">
-                      ¥{cap.turnover}亿
+                      {cap.turnover === "—" ? "暂无" : `¥${cap.turnover}亿`}
                     </span>
                   </div>
                 </div>

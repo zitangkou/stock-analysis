@@ -5,6 +5,15 @@ import { GoogleGenAI } from "@google/genai";
 import { marketEngine } from "./server/marketEngine.js";
 import { isDbConfigured } from "./server/db.js";
 import { getRealMarketState, getRealScrapeLogs } from "./server/realMarketData.js";
+import {
+  getAiContextSummary,
+  getAlertRecords,
+  getAlertRules,
+  getGlobalHotStocks,
+  getRadarSectors,
+  getRotationMatrix,
+  getTerminalOverview,
+} from "./server/terminalData.js";
 
 async function startServer() {
   const app = express();
@@ -37,6 +46,115 @@ async function startServer() {
       res.json(state);
     } catch (err: any) {
       res.status(500).json({ error: err.message || "Failed to fetch market data" });
+    }
+  });
+
+  app.get("/api/terminal/overview", async (_req, res) => {
+    try {
+      if (!useRealData) {
+        const state = marketEngine.getMarketState();
+        const sorted = [...state.currentSectors].sort((a, b) => b.heat - a.heat);
+        res.json({
+          marketHeat: Math.round(
+            sorted.reduce((s, x) => s + x.heat, 0) / Math.max(sorted.length, 1)
+          ),
+          upCount: 0,
+          downCount: 0,
+          stockCount: sorted.reduce((s, x) => s + x.hotStocks.length, 0),
+          limitUpApprox: 0,
+          topSectors: sorted.slice(0, 6).map((s) => ({
+            id: s.id,
+            name: s.name,
+            heat: s.heat,
+            change: s.change,
+            netInflowProxy: null,
+            dataQuality: "proxy",
+          })),
+          topInflowProxy: [],
+          dataQualityNote: "模拟模式：无真实资金流/涨停数据",
+        });
+        return;
+      }
+      res.json(await getTerminalOverview());
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "overview failed" });
+    }
+  });
+
+  app.get("/api/terminal/hot-stocks", async (req, res) => {
+    try {
+      const limit = Math.min(Number(req.query.limit) || 30, 100);
+      if (!useRealData) {
+        const state = marketEngine.getMarketState();
+        const all = state.currentSectors.flatMap((s) =>
+          s.hotStocks.map((st) => ({ ...st, themeId: s.id, themeName: s.name }))
+        );
+        all.sort((a, b) => b.heat - a.heat);
+        res.json(all.slice(0, limit));
+        return;
+      }
+      res.json(await getGlobalHotStocks(limit));
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "hot-stocks failed" });
+    }
+  });
+
+  app.get("/api/terminal/radar", async (_req, res) => {
+    try {
+      if (!useRealData) {
+        const state = marketEngine.getMarketState();
+        res.json(
+          state.currentSectors.map((s) => ({
+            id: s.id,
+            name: s.name,
+            heat: s.heat,
+            momentum: 0,
+            acceleration: 0,
+            change: s.change,
+            zone:
+              s.heat >= 80
+                ? "core"
+                : s.heat >= 60
+                  ? "warm"
+                  : s.heat >= 40
+                    ? "outer"
+                    : "cold",
+            dataQuality: "proxy",
+          }))
+        );
+        return;
+      }
+      res.json(await getRadarSectors());
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "radar failed" });
+    }
+  });
+
+  app.get("/api/terminal/rotation", async (_req, res) => {
+    try {
+      if (!useRealData) {
+        res.json({ cells: [], path: [], tradeDate: null });
+        return;
+      }
+      res.json(await getRotationMatrix(1));
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "rotation failed" });
+    }
+  });
+
+  app.get("/api/terminal/alerts", async (_req, res) => {
+    try {
+      if (!useRealData) {
+        res.json({ rules: [], records: [] });
+        return;
+      }
+      const [rules, records] = await Promise.all([
+        getAlertRules(),
+        getAlertRecords(50),
+      ]);
+      res.json({ rules, records });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "alerts failed" });
     }
   });
 
@@ -106,7 +224,7 @@ async function startServer() {
     }
   });
 
-  function generateFallbackReport(state: any, _logs: any[]): string {
+  function generateFallbackReport(state: any, contextExtra = ""): string {
     const intervalMinutes = useRealData ? 3 : marketEngine.getIntervalMs() / 60000;
     const sortedSectors = [...state.currentSectors].sort(
       (a: any, b: any) => b.heat - a.heat
@@ -140,6 +258,8 @@ async function startServer() {
 1. **绝对主线（${strongestSector?.name || "核心题材"}）**：热度 **${strongestSector?.heat || 85}**，涨跌幅 **${strongestSector?.change >= 0 ? "+" : ""}${strongestSector?.change}%**。
 2. **跟风/辅助支线（${secondSector?.name || "辅助板块"}）**：热度 **${secondSector?.heat || 65}**。
 
+${contextExtra ? `\n### 📊 **落库热力摘要**\n\n\`\`\`\n${contextExtra.slice(0, 1200)}\n\`\`\`\n` : ""}
+
 ---
 
 ### ⚡ **焦点异常个股与筹码博弈透视**
@@ -159,7 +279,7 @@ ${activeStocks
 - **进攻**：聚焦 **${strongestSector?.name || "核心题材"}** 中换手充分的标的。
 - **防守**：规避高位滞涨，保留部分仓位至 **${secondSector?.name || "辅助板块"}**。
 
-*注：${useRealData ? "报告基于 PostgreSQL 真实行情聚合生成。" : "本地量化引擎生成。"}生成时间：${nowStr}*`;
+*注：${useRealData ? "报告基于 PostgreSQL 落库热力/行情聚合生成；资金净流入为代理指标。" : "本地量化引擎生成。"}生成时间：${nowStr}*`;
   }
 
   app.post("/api/ai-rotation-report", async (_req, res) => {
@@ -168,9 +288,18 @@ ${activeStocks
       ? await getRealScrapeLogs()
       : marketEngine.getScrapeLogs();
 
+    let aiContext = "";
+    if (useRealData) {
+      try {
+        aiContext = await getAiContextSummary();
+      } catch {
+        aiContext = "";
+      }
+    }
+
     try {
       if (!aiClient || (!useRealData && marketEngine.isCooldownActive())) {
-        return res.json({ report: generateFallbackReport(state, logs) });
+        return res.json({ report: generateFallbackReport(state, aiContext) });
       }
 
       const intervalMinutes = useRealData
@@ -206,9 +335,13 @@ ${activeStocks
 【全天${intervalText}粒度最热行业板块变迁轨迹】:
 ${JSON.stringify(simplifiedTimeline.slice(-8), null, 2)}
 
+【落库热力/轮动/雷达真实摘要】:
+${aiContext || "(暂无)"}
+
 【数据源说明】:
 ${logsText}
 
+注意：若摘要中 data_quality=proxy，资金净流入与涨停为代理指标，非正式主力资金/涨停池。
 报告必须包含：大盘情绪、题材主线、焦点个股、攻防策略。使用专业 Markdown。`;
 
       const response = await aiClient.models.generateContent({
@@ -235,7 +368,7 @@ ${logsText}
       ) {
         marketEngine.triggerCooldown(300000);
       }
-      res.json({ report: generateFallbackReport(state, logs) });
+      res.json({ report: generateFallbackReport(state, aiContext) });
     }
   });
 
@@ -248,6 +381,8 @@ ${logsText}
           universe: string;
           with_theme: string;
           with_sw: string;
+          heat_stocks: string;
+          heat_sectors: string;
         }>(
           `
           SELECT
@@ -255,7 +390,9 @@ ${logsText}
             (SELECT COUNT(*)::text FROM instruments i
                JOIN universe_members um ON um.code = i.code AND um.effective_to IS NULL
               WHERE i.theme_id IS NOT NULL) AS with_theme,
-            (SELECT COUNT(*)::text FROM instrument_sw) AS with_sw
+            (SELECT COUNT(*)::text FROM instrument_sw) AS with_sw,
+            (SELECT COUNT(*)::text FROM heat_score_stock_latest) AS heat_stocks,
+            (SELECT COUNT(*)::text FROM heat_score_sector_latest) AS heat_sectors
           `
         );
         themeStats = rows[0];

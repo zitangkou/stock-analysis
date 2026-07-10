@@ -153,6 +153,12 @@ def run(force: bool = False) -> int:
             message=f"session={label}, universe={len(universe)}, wrote={rows}",
         )
         logger.info("ingest quotes: wrote %s / universe %s", rows, len(universe))
+        try:
+            from .compute_heat import run as compute_heat
+
+            compute_heat()
+        except Exception:
+            logger.exception("compute-heat after quotes failed (non-fatal)")
         return rows
     except Exception as exc:
         finish_job(job_id, "failed", message=str(exc))

@@ -4,9 +4,15 @@ export interface Stock {
   heat: number;        // 热度值 (0 - 100)
   change: number;      // 涨跌幅 %
   price: number;       // 当前价格
-  sentiment: 'positive' | 'neutral' | 'negative'; // 舆情倾向
-  discussionCount: number; // 讨论次数
+  sentiment: 'positive' | 'neutral' | 'negative'; // 舆情倾向（代理）
+  discussionCount: number; // 讨论次数（代理）
   rank: number;        // 板块内热度排名
+  themeId?: string;
+  themeName?: string;
+  momentum?: number;
+  netInflowProxy?: number;
+  isLimitUpApprox?: boolean;
+  dataQuality?: 'full' | 'proxy' | 'partial';
 }
 
 export interface Sector {
@@ -14,9 +20,16 @@ export interface Sector {
   name: string;
   heat: number;        // 行业板块热度 (0 - 100)
   change: number;      // 板块平均涨跌幅 %
-  sentimentScore: number; // 舆情指数 (0 - 100)
+  sentimentScore: number; // 舆情指数 (0 - 100) — 代理
   hotStocks: Stock[];  // 热度前十的股票
-  description: string; // 板块热点简述 (例如：受到英伟达大涨或国家大基金三期扶持等舆情刺激)
+  description: string; // 板块热点简述
+  momentum?: number;
+  acceleration?: number;
+  netInflowProxy?: number;
+  upCount?: number;
+  downCount?: number;
+  stockCount?: number;
+  dataQuality?: 'full' | 'proxy' | 'partial';
 }
 
 export interface MarketDataPoint {
@@ -47,6 +60,7 @@ export interface MarketState {
   lastUpdated: string;
   isLiveScraping: boolean;
   statusMessage: string;
+  heatSource?: 'persisted' | 'computed' | 'mock';
 }
 
 export interface ScrapeLog {
@@ -56,3 +70,12 @@ export interface ScrapeLog {
   sentiment: 'positive' | 'neutral' | 'negative';
   weight: number;
 }
+
+export type TerminalModule =
+  | 'overview'
+  | 'heatmap'
+  | 'rank'
+  | 'radar'
+  | 'rotation'
+  | 'ai'
+  | 'alerts';

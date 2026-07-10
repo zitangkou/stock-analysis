@@ -41,6 +41,21 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_fac = sub.add_parser("compute-factors", help="Compute basic daily factors from bars")
     p_fac.add_argument("--days", type=int, default=60, help="Lookback calendar days")
+    p_heat = sub.add_parser(
+        "compute-heat",
+        help="Persist stock/sector heat scores + rotation slots + alert eval",
+    )
+    p_heat.add_argument(
+        "--retention-days",
+        type=int,
+        default=14,
+        help="Trim heat history older than N days",
+    )
+    p_heat.add_argument(
+        "--no-alerts",
+        action="store_true",
+        help="Skip alert rule evaluation",
+    )
     p_uni = sub.add_parser("rebuild-universe", help="Rebuild ~2000 quality universe")
     p_uni.add_argument("--dry-run", action="store_true", help="Score only, do not write members")
 
@@ -93,6 +108,11 @@ def main(argv: list[str] | None = None) -> int:
         from src.jobs.compute_factors import run
 
         run(days=args.days)
+        return 0
+    if args.cmd == "compute-heat":
+        from src.jobs.compute_heat import run
+
+        run(retention_days=args.retention_days, evaluate_alerts=not args.no_alerts)
         return 0
     if args.cmd == "rebuild-universe":
         from src.jobs.rebuild_universe import run

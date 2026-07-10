@@ -71,6 +71,8 @@ python -m src.cli rebuild-universe
 | `python -m src.cli ingest-quotes --force` | 立即拉一轮快照 |
 | `python -m src.cli run-quotes` | 交易时段循环（默认 60s） |
 | `python -m src.cli ingest-bars --days 30` | 日线回填 |
+| `python -m src.cli apply-themes` | 本地行业文本 → theme_id（不打东财） |
+| `python -m src.cli compute-heat` | 落库个股/题材热力 + 轮动槽 + 预警评估 |
 
 ## 限流建议（防封）
 
