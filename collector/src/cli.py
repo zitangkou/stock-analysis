@@ -31,9 +31,13 @@ def main(argv: list[str] | None = None) -> int:
     p_sw.add_argument("--limit", type=int, default=None, help="Only first N industries (debug)")
     p_sw.add_argument(
         "--prefer",
-        choices=["em", "sw"],
-        default="em",
-        help="em=Eastmoney first (default), sw=try Shenwan then EM",
+        choices=["em", "sw", "local"],
+        default="local",
+        help="local=map from DB industry text (default, no board API); em/sw=external boards",
+    )
+    p_apply = sub.add_parser(
+        "apply-themes",
+        help="Map instruments.industry → theme_id without calling board APIs",
     )
     p_fac = sub.add_parser("compute-factors", help="Compute basic daily factors from bars")
     p_fac.add_argument("--days", type=int, default=60, help="Lookback calendar days")
@@ -79,6 +83,11 @@ def main(argv: list[str] | None = None) -> int:
         from src.jobs.sync_sw_industry import run
 
         run(sleep=args.sleep, limit=args.limit, prefer=args.prefer)
+        return 0
+    if args.cmd == "apply-themes":
+        from src.jobs.apply_themes import run
+
+        run()
         return 0
     if args.cmd == "compute-factors":
         from src.jobs.compute_factors import run

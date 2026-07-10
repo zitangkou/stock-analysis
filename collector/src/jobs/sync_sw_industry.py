@@ -16,8 +16,9 @@ def run(sleep: float = 1.0, limit: int | None = None, prefer: str = "em") -> int
     Sync industry classification → instrument_sw + instruments.theme_id.
 
     prefer:
-      - em: Eastmoney industry boards first (recommended; SW cons API often broken)
-      - sw: try Shenwan first, fall back to EM if zero rows
+      - em: Eastmoney industry boards first
+      - sw: try Shenwan first, fall back to EM
+      - local: only map from existing instruments.industry (no external board APIs)
     """
     job_id = start_job("sync_sw_industry")
     try:
@@ -25,22 +26,62 @@ def run(sleep: float = 1.0, limit: int | None = None, prefer: str = "em") -> int
         n = 0
         source = prefer
 
-        if prefer == "sw":
-            try:
-                n = _sync_shenwan(sleep=sleep, limit=limit)
-            except Exception as exc:
-                logger.warning("Shenwan sync errored (%s)", exc)
-                n = 0
-            if n <= 0:
-                logger.warning("Shenwan wrote 0 rows, falling back to Eastmoney industry")
+        if prefer == "local":
+            from .apply_themes import run as apply_themes
+
+            mapped = apply_themes()
+            finish_job(
+                job_id,
+                "success",
+                rows_affected=mapped,
+                message=f"source=local, theme_mapped={mapped}",
+            )
+            return mapped
+
+        try:
+            if prefer == "sw":
+                try:
+                    n = _sync_shenwan(sleep=sleep, limit=limit)
+                except Exception as exc:
+                    logger.warning("Shenwan sync errored (%s)", exc)
+                    n = 0
+                if n <= 0:
+                    logger.warning("Shenwan wrote 0 rows, trying Eastmoney")
+                    n = _sync_eastmoney_industry(sleep=sleep, limit=limit)
+                    source = "em"
+            else:
                 n = _sync_eastmoney_industry(sleep=sleep, limit=limit)
                 source = "em"
-        else:
-            n = _sync_eastmoney_industry(sleep=sleep, limit=limit)
-            source = "em"
+        except Exception as exc:
+            logger.warning("External industry APIs failed (%s); using local industry text", exc)
+            from .apply_themes import run as apply_themes
+
+            mapped = apply_themes()
+            finish_job(
+                job_id,
+                "partial" if mapped else "failed",
+                rows_affected=mapped,
+                message=f"source=local_fallback, theme_mapped={mapped}, err={exc}",
+            )
+            if mapped <= 0:
+                raise RuntimeError(
+                    "Industry APIs blocked and no local industry text to map. "
+                    "Run: python -m src.cli sync-fundamentals && python -m src.cli apply-themes"
+                )
+            return mapped
 
         if n <= 0:
-            raise RuntimeError("Industry sync wrote 0 rows from all sources")
+            logger.warning("External industry wrote 0 rows; applying local theme map")
+            from .apply_themes import run as apply_themes
+
+            mapped = apply_themes()
+            finish_job(
+                job_id,
+                "partial" if mapped else "failed",
+                rows_affected=mapped,
+                message=f"source=local_fallback, theme_mapped={mapped}",
+            )
+            return mapped
 
         mapped = _apply_theme_ids()
         finish_job(
