@@ -32,12 +32,24 @@ stock-analysis/
 
 ## 开发路线（当前）
 
-1. **Phase 1（进行中）**：云上 Postgres + 选股入池 + 60s 快照 — 见 [`collector/README.md`](collector/README.md)
-2. **Phase 2**：日线/基本面完善、Mac 多年回填
-3. **Phase 3**：Express 热力图改读真实库，替换 `marketEngine` 模拟数据
-4. **Phase 4**：因子表与策略回测
+1. **Phase 1**：云上 Postgres + 选股入池 + 快照 — 见 [`collector/README.md`](collector/README.md)
+2. **Phase 2**：日线回填（可后台 `nohup`）
+3. **Phase 3（已接通）**：Express 热力图读真实库 — 配置 `DATABASE_URL` 后 `npm run dev`
+4. **Phase 4**：行业映射细化、因子与策略回测
 
-选股权重默认：`0.35 ROE + 0.25 净利额 + 0.25 净利同比 + 0.15 流动性`（`.env` 可调）。
+### 热力图接真库
+
+```bash
+# 方式 A：本机通过 SSH 隧道连云上 Postgres
+ssh -L 5432:127.0.0.1:5432 root@你的云服务器IP
+
+# 另开终端
+cp .env.example .env.local   # 填 DATABASE_URL=postgresql://stock:密码@127.0.0.1:5432/stock_market
+npm run dev
+# 打开 http://localhost:3000 ，/api/health 应显示 "mode":"postgres"
+```
+
+未配置 `DATABASE_URL` 时仍走原来的模拟 `marketEngine`。
 
 ## 本地启动（热力图 UI）
 
