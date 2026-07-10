@@ -33,7 +33,7 @@ sudo -u postgres psql -d stock_market -c "GRANT ALL ON SCHEMA public TO stock;"
 
 # 4. 拉代码（按你的仓库地址）
 cd /opt
-sudo git clone git@github.com:zitangkou/stock-analysis.git
+sudo git clone git clone https://github.com/zitangkou/stock-analysis.git
 sudo chown -R $USER:$USER /opt/stock-analysis
 
 # 5. Python 环境
@@ -72,7 +72,14 @@ python -m src.cli rebuild-universe
 | `python -m src.cli run-quotes` | 交易时段循环（默认 60s） |
 | `python -m src.cli ingest-bars --days 30` | 日线回填 |
 
-权重与池大小在 `.env`：`WEIGHT_ROE` / `WEIGHT_NET_PROFIT` / `WEIGHT_NET_PROFIT_YOY` / `WEIGHT_LIQUIDITY` / `UNIVERSE_SIZE` / `QUOTE_INTERVAL_SEC`。
+## 限流建议（防封）
+
+默认已偏保守：
+- 盘中快照间隔 **180 秒**（`QUOTE_INTERVAL_SEC`）
+- 行情优先走 **新浪批量**（只打股池约 2000 只，约 20 次请求/轮），不再每轮狂翻东财全市场分页
+- 日线默认每只间隔 **2 秒**（`BARS_SLEEP_SEC`）
+
+被断开后先停 10–30 分钟再试，不要连续重跑 `ingest-bars` / `ingest-quotes`。
 
 强制纳入/剔除：
 

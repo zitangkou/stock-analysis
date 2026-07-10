@@ -19,16 +19,43 @@ EASTMONEY_SPOT_URL = "https://push2.eastmoney.com/api/qt/clist/get"
 # Using broader A-share list then filter locally is more reliable.
 
 
-def fetch_a_share_spot() -> pd.DataFrame:
-    """Fetch A-share spot list; Eastmoney first, akshare fallback."""
+def fetch_a_share_spot(codes: list[str] | None = None) -> pd.DataFrame:
+    """
+    Fetch spot quotes with gentle rate limits.
+
+    When codes are provided (normal quote job): prefer Sina batch — far fewer
+    requests than paging the whole A-share list on Eastmoney.
+    Full-market Eastmoney/akshare only used as fallback or when codes is None.
+    """
+    if codes:
+        try:
+            df = fetch_sina_spot(codes)
+            if not df.empty:
+                return df
+            logger.warning("sina spot empty, trying eastmoney")
+        except Exception as exc:
+            logger.warning("sina spot failed (%s), trying eastmoney", exc)
+
     try:
         df = _fetch_eastmoney_spot()
         if not df.empty:
             return df
-        logger.warning("eastmoney spot empty, falling back to akshare")
+        logger.warning("eastmoney spot empty, trying akshare")
     except Exception as exc:
-        logger.warning("eastmoney spot failed (%s), falling back to akshare", exc)
-    return _fetch_akshare_spot()
+        logger.warning("eastmoney spot failed (%s), trying akshare", exc)
+
+    try:
+        df = _fetch_akshare_spot()
+        if not df.empty:
+            return df
+    except Exception as exc:
+        logger.warning("akshare spot failed (%s)", exc)
+
+    if codes:
+        # Last resort retry sina once more after cooldown
+        time.sleep(3)
+        return fetch_sina_spot(codes)
+    raise RuntimeError("All spot sources failed")
 
 
 def _fetch_eastmoney_spot() -> pd.DataFrame:
@@ -82,7 +109,7 @@ def _fetch_eastmoney_spot() -> pd.DataFrame:
             if page * page_size >= total:
                 break
             page += 1
-            time.sleep(0.35)
+            time.sleep(1.0)  # gentle: avoid cloud IP bans
 
     if not frames:
         return pd.DataFrame()
@@ -157,6 +184,96 @@ def _normalize_spot_df(df: pd.DataFrame) -> pd.DataFrame:
     df["board"] = df["code"].map(board_of)
     df["is_st"] = df["name"].map(is_st_name)
     return df.drop_duplicates(subset=["code"], keep="first")
+
+
+def fetch_sina_spot(codes: list[str], batch_size: int | None = None) -> pd.DataFrame:
+    """
+    Batch quote via Sina hq.sinajs.cn — often more reachable from cloud IPs.
+    Field order: name, open, pre_close, price, high, low, ..., volume, amount
+    """
+    from .config import get_settings
+
+    settings = get_settings()
+    if batch_size is None:
+        batch_size = settings.quote_batch_size
+    batch_sleep = settings.quote_batch_sleep
+
+    rows: list[dict[str, Any]] = []
+    uniq = [normalize_code(c) for c in codes if board_of(normalize_code(c))]
+    headers = {
+        "User-Agent": "Mozilla/5.0",
+        "Referer": "https://finance.sina.com.cn",
+    }
+    with httpx.Client(timeout=30.0, headers=headers) as client:
+        for i in range(0, len(uniq), batch_size):
+            chunk = uniq[i : i + batch_size]
+            symbols = ",".join(
+                ("sh" if exchange_of(c) == "SH" else "sz") + c for c in chunk
+            )
+            url = f"https://hq.sinajs.cn/list={symbols}"
+            last_exc: Exception | None = None
+            text = ""
+            for attempt in range(3):
+                try:
+                    resp = client.get(url)
+                    resp.raise_for_status()
+                    text = resp.content.decode("gbk", errors="ignore")
+                    break
+                except Exception as exc:
+                    last_exc = exc
+                    time.sleep(2.0 * (attempt + 1))
+            else:
+                logger.warning("sina batch failed at offset %s: %s", i, last_exc)
+                time.sleep(3.0)
+                continue
+
+            for line in text.splitlines():
+                if "hq_str_" not in line or '=""' in line or '="' not in line:
+                    continue
+                try:
+                    left, right = line.split("=", 1)
+                    sym = left.split("hq_str_")[-1].strip()
+                    code = normalize_code(sym)
+                    payload = right.strip().strip(";").strip('"')
+                    parts = payload.split(",")
+                    if len(parts) < 10:
+                        continue
+                    name = parts[0]
+                    open_ = float(parts[1] or 0)
+                    pre_close = float(parts[2] or 0)
+                    price = float(parts[3] or 0)
+                    high = float(parts[4] or 0)
+                    low = float(parts[5] or 0)
+                    volume = float(parts[8] or 0)
+                    amount = float(parts[9] or 0)
+                    change_amt = price - pre_close if pre_close else None
+                    change_pct = (
+                        (change_amt / pre_close * 100) if pre_close else None
+                    )
+                    rows.append(
+                        {
+                            "code": code,
+                            "name": name,
+                            "open": open_,
+                            "pre_close": pre_close,
+                            "price": price,
+                            "high": high,
+                            "low": low,
+                            "volume": volume,
+                            "amount": amount,
+                            "change_amt": change_amt,
+                            "change_pct": change_pct,
+                        }
+                    )
+                except Exception:
+                    continue
+            time.sleep(batch_sleep)
+
+    if not rows:
+        return pd.DataFrame()
+    logger.info("sina spot fetched %s quotes", len(rows))
+    return _normalize_spot_df(pd.DataFrame(rows))
+
 
 def fetch_instruments_akshare() -> pd.DataFrame:
     """Fallback / enrichment: stock list via akshare."""

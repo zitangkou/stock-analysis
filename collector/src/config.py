@@ -26,6 +26,7 @@ class Settings:
     snapshot_retention_days: int
     quote_batch_size: int
     quote_batch_sleep: float
+    bars_sleep_sec: float
     tz: str
 
     @classmethod
@@ -44,10 +45,11 @@ class Settings:
             weight_liquidity=float(os.getenv("WEIGHT_LIQUIDITY", "0.15")),
             min_list_days=int(os.getenv("MIN_LIST_DAYS", "120")),
             min_avg_amount_20d=float(os.getenv("MIN_AVG_AMOUNT_20D", "20000000")),
-            quote_interval_sec=int(os.getenv("QUOTE_INTERVAL_SEC", "60")),
+            quote_interval_sec=int(os.getenv("QUOTE_INTERVAL_SEC", "180")),
             snapshot_retention_days=int(os.getenv("SNAPSHOT_RETENTION_DAYS", "40")),
-            quote_batch_size=int(os.getenv("QUOTE_BATCH_SIZE", "200")),
-            quote_batch_sleep=float(os.getenv("QUOTE_BATCH_SLEEP", "0.35")),
+            quote_batch_size=int(os.getenv("QUOTE_BATCH_SIZE", "100")),
+            quote_batch_sleep=float(os.getenv("QUOTE_BATCH_SLEEP", "0.8")),
+            bars_sleep_sec=float(os.getenv("BARS_SLEEP_SEC", "2.0")),
             tz=os.getenv("TZ", "Asia/Shanghai"),
         )
 

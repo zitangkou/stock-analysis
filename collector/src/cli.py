@@ -36,7 +36,7 @@ def main(argv: list[str] | None = None) -> int:
 
     p_bars = sub.add_parser("ingest-bars", help="Ingest daily bars for universe")
     p_bars.add_argument("--days", type=int, default=30, help="Lookback calendar days")
-    p_bars.add_argument("--sleep", type=float, default=1.0, help="Sleep between symbols")
+    p_bars.add_argument("--sleep", type=float, default=None, help="Sleep between symbols (default from env)")
     p_bars.add_argument("--limit", type=int, default=None, help="Only first N universe codes")
 
     sub.add_parser("bootstrap", help="init-db + calendar + instruments + fundamentals + universe")
@@ -80,9 +80,11 @@ def main(argv: list[str] | None = None) -> int:
         run_loop()
         return 0
     if args.cmd == "ingest-bars":
+        from src.config import get_settings
         from src.jobs.ingest_bars import run
 
-        run(days=args.days, sleep=args.sleep, limit=args.limit)
+        sleep = args.sleep if args.sleep is not None else get_settings().bars_sleep_sec
+        run(days=args.days, sleep=sleep, limit=args.limit)
         return 0
     if args.cmd == "bootstrap":
         return cmd_bootstrap()

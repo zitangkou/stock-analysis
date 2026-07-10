@@ -46,7 +46,7 @@ def run(force: bool = False) -> int:
         if not universe:
             raise RuntimeError("No universe/instruments to quote")
 
-        df = fetch_a_share_spot()
+        df = fetch_a_share_spot(codes=list(universe))
         if df.empty:
             raise RuntimeError("Empty spot data from source")
 
