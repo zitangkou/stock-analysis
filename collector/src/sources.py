@@ -383,8 +383,73 @@ def _report_period_candidates() -> list[str]:
     return out
 
 
+def fetch_hist_bars(code: str, start: str, end: str) -> pd.DataFrame:
+    """Daily bars. Prefer Sina (cloud-friendly); Eastmoney/akshare as fallback."""
+    try:
+        df = fetch_hist_bars_sina(code, start, end)
+        if not df.empty:
+            return df
+    except Exception as exc:
+        logger.warning("sina bars failed for %s: %s", code, exc)
+    return fetch_hist_bars_akshare(code, start, end)
+
+
+def fetch_hist_bars_sina(code: str, start: str, end: str) -> pd.DataFrame:
+    """
+    Sina daily K-line.
+    scale=240 means daily; datalen is number of bars from latest.
+    """
+    code = normalize_code(code)
+    symbol = ("sh" if exchange_of(code) == "SH" else "sz") + code
+    # request enough bars to cover lookback (calendar days ≈ trading days * 1.5)
+    try:
+        start_d = pd.to_datetime(start)
+        end_d = pd.to_datetime(end)
+        datalen = max(int((end_d - start_d).days * 0.8) + 5, 40)
+    except Exception:
+        datalen = 60
+    datalen = min(datalen, 1023)
+
+    url = "https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData"
+    params = {"symbol": symbol, "scale": 240, "ma": 5, "datalen": datalen}
+    headers = {
+        "User-Agent": "Mozilla/5.0",
+        "Referer": "https://finance.sina.com.cn",
+    }
+    with httpx.Client(timeout=30.0, headers=headers) as client:
+        resp = client.get(url, params=params)
+        resp.raise_for_status()
+        data = resp.json()
+    if not data:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(data)
+    # columns: day, open, high, low, close, volume
+    df = df.rename(
+        columns={
+            "day": "trade_date",
+            "open": "open",
+            "high": "high",
+            "low": "low",
+            "close": "close",
+            "volume": "volume",
+        }
+    )
+    df["trade_date"] = pd.to_datetime(df["trade_date"]).dt.date
+    start_date = pd.to_datetime(start).date()
+    end_date = pd.to_datetime(end).date()
+    df = df[(df["trade_date"] >= start_date) & (df["trade_date"] <= end_date)].copy()
+    for col in ["open", "high", "low", "close", "volume"]:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+    df["code"] = code
+    df["amount"] = None
+    df["turnover_rate"] = None
+    df["change_pct"] = df["close"].pct_change() * 100
+    return df
+
+
 def fetch_hist_bars_akshare(code: str, start: str, end: str) -> pd.DataFrame:
-    """Daily bars. start/end: YYYYMMDD."""
+    """Daily bars via Eastmoney (akshare). start/end: YYYYMMDD."""
     import akshare as ak
 
     df = ak.stock_zh_a_hist(

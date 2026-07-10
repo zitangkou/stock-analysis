@@ -9,7 +9,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 from ..calendar_util import today_cn
 from ..codes import normalize_code
 from ..db import fetch_all, finish_job, get_conn, start_job
-from ..sources import fetch_hist_bars_akshare
+from ..sources import fetch_hist_bars
 
 logger = logging.getLogger(__name__)
 
@@ -24,15 +24,15 @@ def _universe_codes_only() -> list[str]:
     return [r["code"] for r in rows]
 
 
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=20), reraise=True)
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1.5, min=2, max=15), reraise=True)
 def _fetch_bars(code: str, start_s: str, end_s: str):
-    return fetch_hist_bars_akshare(code, start_s, end_s)
+    return fetch_hist_bars(code, start_s, end_s)
 
 
-def run(days: int = 30, sleep: float = 1.0, limit: int | None = None) -> int:
+def run(days: int = 30, sleep: float = 2.0, limit: int | None = None) -> int:
     """
     Backfill / refresh daily bars for active universe only.
-    Use longer sleep on cloud IPs to reduce source disconnects.
+    Uses Sina K-line by default (Eastmoney often blocks cloud IPs).
     """
     job_id = start_job("ingest_bars_1d")
     try:
@@ -63,7 +63,7 @@ def run(days: int = 30, sleep: float = 1.0, limit: int | None = None) -> int:
                                 trade_date, code, open, high, low, close,
                                 volume, amount, turnover_rate, change_pct, source
                             ) VALUES (
-                                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'akshare'
+                                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'sina'
                             )
                             ON CONFLICT (trade_date, code) DO UPDATE SET
                                 open = EXCLUDED.open,
@@ -71,8 +71,8 @@ def run(days: int = 30, sleep: float = 1.0, limit: int | None = None) -> int:
                                 low = EXCLUDED.low,
                                 close = EXCLUDED.close,
                                 volume = EXCLUDED.volume,
-                                amount = EXCLUDED.amount,
-                                turnover_rate = EXCLUDED.turnover_rate,
+                                amount = COALESCE(EXCLUDED.amount, bars_1d.amount),
+                                turnover_rate = COALESCE(EXCLUDED.turnover_rate, bars_1d.turnover_rate),
                                 change_pct = EXCLUDED.change_pct,
                                 source = EXCLUDED.source
                             """,
@@ -95,11 +95,11 @@ def run(days: int = 30, sleep: float = 1.0, limit: int | None = None) -> int:
                     errors += 1
                     consecutive_fail += 1
                     logger.warning("bars failed for %s: %s", code, exc)
-                    if consecutive_fail >= 20:
+                    if consecutive_fail >= 15:
                         logger.error("too many consecutive failures, aborting bars job")
                         break
-                    time.sleep(min(5.0, sleep * consecutive_fail))
-                if i % 50 == 0:
+                    time.sleep(min(8.0, sleep * consecutive_fail))
+                if i % 20 == 0:
                     logger.info(
                         "bars progress %s/%s, rows=%s, errors=%s",
                         i,
