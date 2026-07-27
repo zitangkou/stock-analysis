@@ -9,5 +9,13 @@ coverage/
 collector/.venv/
 collector/**/__pycache__/
 collector/**/*.pyc
+quant-data-factory/.venv/
+quant-data-factory/**/__pycache__/
+quant-data-factory/**/*.pyc
+quant-data-factory/storage/parquet/**
+!quant-data-factory/storage/parquet/.gitignore
+quant_lab/.venv/
+quant_lab/**/__pycache__/
+quant_lab/data/
 *.egg-info/
 .pytest_cache/

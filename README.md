@@ -8,17 +8,31 @@ View your app in AI Studio: https://ai.studio/apps/2e8f74be-9f96-4c67-a014-57da7
 
 ```
 stock-analysis/
-├── collector/             # 行情数据底座（Python + PostgreSQL）
-│   ├── src/               # 采集：日历/标的/基本面/股池/快照/日线/热力
-│   ├── sql/               # schema（含 004 热力平台）
-│   ├── deploy/            # systemd / cron
-│   └── README.md
-├── server.ts              # Express：七模块 API + Vite
-├── server/                # realMarketData / terminalData / sectorThemes
+├── collector/             # 盘中热力：Postgres + 新浪快照/题材
+├── quant-data-factory/    # 盘后量化仓：BaoStock→Parquet（云 cron）
+├── quant_lab/             # 本机：rsync + DuckDB/Polars/Vectorbt
+├── server.ts / server/    # 热力终端 API
 ├── src/                   # React 七模块终端
-├── docs/                  # 模块×表×Job、题材字典
-├── data/concept_members.csv
+├── docs/                  # ER、数据字典、题材字典
 └── package.json
+```
+
+## 量化：云采数 + 本机分析
+
+盘后日频工厂与热力图解耦。详见：
+
+- [`quant-data-factory/README.md`](quant-data-factory/README.md)
+- [`quant_lab/README.md`](quant_lab/README.md)
+- [`docs/quant_data_dictionary.md`](docs/quant_data_dictionary.md)
+
+```bash
+# 云
+cd quant-data-factory && python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt && cp config.example.env .env
+python run_daily.py daily --limit 30 --force --with-index
+
+# 本机
+cd quant_lab && ./sync.sh && python examples/duckdb_smoke.py
 ```
 
 ## 技术框架
@@ -27,10 +41,10 @@ stock-analysis/
 |---|---|
 | 前端 | React 19 + TypeScript + Vite 6 + Tailwind CSS 4 + Lucide |
 | 终端 API | Express（七模块：总览/热力/热榜/雷达/轮动/AI/预警） |
-| 行情底座 | Python collector + PostgreSQL（~2000 优质股） |
+| 盘中底座 | Python collector + PostgreSQL（~2000 优质股） |
+| 盘后量化仓 | BaoStock 日 K → Parquet；本机 DuckDB / Vectorbt |
 | 热力 | `compute-heat` 落库；资金/涨停为代理指标（`data_quality=proxy`） |
 | AI | Google Gemini（可选；吃落库热力摘要） |
-
 ## 开发路线（当前）
 
 1. ~~云上 Postgres + 股池 + 快照 + 日线~~

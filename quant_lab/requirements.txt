@@ -1,0 +1,8 @@
+# Local quant lab — sync from cloud Parquet, DuckDB / Polars / Vectorbt
+duckdb>=1.0.0
+polars>=1.0.0
+pandas>=2.2.0
+pyarrow>=16.0.0
+numpy>=1.26.0
+vectorbt>=0.26.0
+matplotlib>=3.8.0

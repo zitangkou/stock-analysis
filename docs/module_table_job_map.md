@@ -44,6 +44,10 @@
 
 见 [`docs/theme_dictionary.md`](theme_dictionary.md) 与 [`data/concept_members.csv`](../data/concept_members.csv)。
 
+## 当前库 ER 图
+
+见 [`docs/erd_current.md`](erd_current.md)（按 001–004 schema 整理的实现态 ER，含 Mermaid）。
+
 ## 云上启用
 
 ```bash
