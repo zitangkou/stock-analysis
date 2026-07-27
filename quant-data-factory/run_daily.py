@@ -204,11 +204,16 @@ def run_status() -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="A-share post-close data factory")
-    parser.add_argument("-v", "--verbose", action="store_true")
+    parent = argparse.ArgumentParser(add_help=False)
+    parent.add_argument("-v", "--verbose", action="store_true", help="debug logging")
+
+    parser = argparse.ArgumentParser(
+        description="A-share post-close data factory",
+        parents=[parent],
+    )
     sub = parser.add_subparsers(dest="cmd", required=True)
 
-    p_day = sub.add_parser("daily", help="Fetch one trading day kline → Parquet")
+    p_day = sub.add_parser("daily", parents=[parent], help="Fetch one trading day kline → Parquet")
     p_day.add_argument("--date", default=None, help="YYYY-MM-DD (default: today CN)")
     p_day.add_argument("--limit", type=int, default=None, help="Debug: first N symbols")
     p_day.add_argument("--force", action="store_true")
@@ -217,20 +222,21 @@ def main(argv: list[str] | None = None) -> int:
     p_day.add_argument("--with-extras", action="store_true", help="AKShare north/lhb")
     p_day.add_argument("--with-yjbb", action="store_true", help="Also dump yjbb snapshot")
 
-    p_bf = sub.add_parser("backfill", help="Backfill date range (skips existing)")
+    p_bf = sub.add_parser("backfill", parents=[parent], help="Backfill date range (skips existing)")
     p_bf.add_argument("--start", required=True, help="YYYY-MM-DD")
     p_bf.add_argument("--end", required=True, help="YYYY-MM-DD")
     p_bf.add_argument("--limit", type=int, default=None)
     p_bf.add_argument("--with-hfq", action="store_true")
 
-    p_ex = sub.add_parser("extras", help="Only AKShare extras for a day")
+    p_ex = sub.add_parser("extras", parents=[parent], help="Only AKShare extras for a day")
     p_ex.add_argument("--date", default=None)
     p_ex.add_argument("--with-yjbb", action="store_true")
 
-    sub.add_parser("sync-meta", help="Sync calendar + stock_basic + inventory.json")
-    sub.add_parser("status", help="Print / refresh data inventory")
+    sub.add_parser("sync-meta", parents=[parent], help="Sync calendar + stock_basic + inventory.json")
+    sub.add_parser("status", parents=[parent], help="Print / refresh data inventory")
     p_boot = sub.add_parser(
         "bootstrap",
+        parents=[parent],
         help="sync-meta + sample daily(limit) for local smoke, or full day without --limit",
     )
     p_boot.add_argument("--date", default=None)
@@ -239,7 +245,7 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
     logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.INFO,
+        level=logging.DEBUG if getattr(args, "verbose", False) else logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
 
