@@ -27,6 +27,22 @@ if [[ -f ../collector/.env ]]; then
   fi
 fi
 
+echo "== timezone check (must be Asia/Shanghai for cron 15:40) =="
+date
+date -u
+if command -v timedatectl >/dev/null 2>&1; then
+  timedatectl | sed -n '1,8p' || true
+fi
+# Ensure factory .env keeps explicit CN tz (Python ZoneInfo uses this)
+grep -q '^TZ=' .env 2>/dev/null || echo "TZ=Asia/Shanghai" >> .env
+# Soft warn if host localtime is not CST
+HOST_OFFSET="$(date +%z)"
+if [[ "$HOST_OFFSET" != "+0800" ]]; then
+  echo "WARNING: host UTC offset is $HOST_OFFSET (want +0800)."
+  echo "  Fix: timedatectl set-timezone Asia/Shanghai"
+  echo "  Or put CRON_TZ=Asia/Shanghai above the cron line."
+fi
+
 echo "== sync-meta =="
 python run_daily.py sync-meta -v
 
