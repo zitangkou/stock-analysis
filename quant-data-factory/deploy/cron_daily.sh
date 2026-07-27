@@ -9,3 +9,4 @@ if [[ -f .venv/bin/activate ]]; then
 fi
 export PYTHONUNBUFFERED=1
 python run_daily.py daily --with-index --with-extras
+python run_daily.py status || true

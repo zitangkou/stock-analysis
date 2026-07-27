@@ -78,4 +78,5 @@ export type TerminalModule =
   | 'radar'
   | 'rotation'
   | 'ai'
-  | 'alerts';
+  | 'alerts'
+  | 'datacenter';

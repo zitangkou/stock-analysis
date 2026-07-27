@@ -14,6 +14,7 @@ import {
   getRotationMatrix,
   getTerminalOverview,
 } from "./server/terminalData.js";
+import { getBarSeries, getDataStatus } from "./server/dataStatus.js";
 
 async function startServer() {
   const app = express();
@@ -39,6 +40,23 @@ async function startServer() {
     }
     return marketEngine.getMarketState();
   }
+
+  app.get("/api/data-status", async (_req, res) => {
+    try {
+      res.json(await getDataStatus());
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "data-status failed" });
+    }
+  });
+
+  app.get("/api/data-bars/:code", async (req, res) => {
+    try {
+      const limit = Math.min(Number(req.query.limit) || 120, 500);
+      res.json(await getBarSeries(req.params.code, limit));
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "data-bars failed" });
+    }
+  });
 
   app.get("/api/market-data", async (_req, res) => {
     try {

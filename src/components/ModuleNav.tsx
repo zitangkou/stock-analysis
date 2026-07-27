@@ -1,6 +1,7 @@
 import type { TerminalModule } from "../types";
 
 const MODULES: Array<{ id: TerminalModule; label: string }> = [
+  { id: "datacenter", label: "数据中心" },
   { id: "overview", label: "市场总览" },
   { id: "heatmap", label: "板块热力" },
   { id: "rank", label: "个股热榜" },

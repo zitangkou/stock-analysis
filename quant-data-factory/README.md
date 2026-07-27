@@ -4,34 +4,39 @@
 
 详细字段见 [`docs/quant_data_dictionary.md`](../docs/quant_data_dictionary.md)。
 
-## 云服务器部署
+## 本地冒烟（确认能拉数）
 
 ```bash
-# 建议路径
-sudo mkdir -p /opt/quant-data-factory
-sudo rsync -a quant-data-factory/ /opt/quant-data-factory/
-# 或在本仓库内：
-cd /opt/stock-analysis/quant-data-factory
-
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -U pip
-pip install -r requirements.txt
-cp config.example.env .env
-
-# 冒烟：限制 N 只，强制跑一天
-python run_daily.py daily --date 2024-07-01 --limit 20 --force -v
-
-# 正式：当日（cron 用）
-python run_daily.py daily --with-index --with-extras
-
-# 历史回填（示例）
-python run_daily.py backfill --start 2024-01-01 --end 2024-01-31
-
-# 行业映射（先 --with-yjbb 产出 parquet）
-python run_daily.py extras --with-yjbb
-python scripts/build_industry_map.py --yjbb storage/parquet/meta/fundamentals/yjbb_YYYY-MM-DD.parquet
+cd quant-data-factory
+chmod +x scripts/smoke_local.sh
+./scripts/smoke_local.sh 2024-06-03
+# 或：
+python run_daily.py bootstrap --date 2024-06-03 --limit 15 --force -v
+python run_daily.py status
 ```
+
+## 云上全量部署
+
+先在本机 `git push`，云上：
+
+```bash
+chmod +x quant-data-factory/deploy/cloud_bootstrap.sh
+sudo bash quant-data-factory/deploy/cloud_bootstrap.sh /opt/stock-analysis
+# 看日志
+tail -f /var/log/quant-factory-daily.log
+python run_daily.py status
+```
+
+全量单日（去掉 limit）较慢；历史用：
+
+```bash
+python run_daily.py backfill --start 2024-01-01 --end 2024-12-31
+```
+
+## 数据中心 UI
+
+`npm run dev` 后打开 **数据中心** Tab：绿勾=已拉取，右侧可点行情预览日K。
+需 `DATABASE_URL` 才能看 Postgres quotes/bars；Parquet 状态读 `PARQUET_ROOT` 或默认 `quant-data-factory/storage/parquet`。
 
 ### Cron
 

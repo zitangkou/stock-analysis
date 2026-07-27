@@ -15,6 +15,7 @@ import type {
   Sector,
   TerminalModule,
 } from "./types";
+import DataCenterPanel from "./components/DataCenterPanel";
 import ModuleNav from "./components/ModuleNav";
 import OverviewPanel from "./components/OverviewPanel";
 import HeatmapGrid from "./components/HeatmapGrid";
@@ -27,7 +28,7 @@ import AlertsPanel from "./components/AlertsPanel";
 import ScrapeLogRail from "./components/ScrapeLogRail";
 
 export default function App() {
-  const [module, setModule] = useState<TerminalModule>("heatmap");
+  const [module, setModule] = useState<TerminalModule>("datacenter");
   const [timeline, setTimeline] = useState<MarketDataPoint[]>([]);
   const [currentSectors, setCurrentSectors] = useState<Sector[]>([]);
   const [scrapeLogs, setScrapeLogs] = useState<ScrapeLog[]>([]);
@@ -293,6 +294,8 @@ export default function App() {
 
       <main className="flex-1 max-w-[1600px] w-full mx-auto px-4 md:px-6 py-4">
         <ModuleNav active={module} onChange={setModule} />
+
+        {module === "datacenter" && <DataCenterPanel />}
 
         {module === "overview" && (
           <OverviewPanel

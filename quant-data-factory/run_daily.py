@@ -173,6 +173,36 @@ def run_extras(trade_date: date, *, yjbb: bool = False) -> dict:
     )
 
 
+def run_sync_meta() -> None:
+    from src.fetchers import meta_basic
+    from src.inventory import write_inventory
+
+    settings = get_settings()
+    meta_basic.sync_trading_calendar(settings.parquet_root)
+    meta_basic.sync_stock_basic(settings.parquet_root)
+    write_inventory(settings.parquet_root, settings.database_url)
+
+
+def run_status() -> int:
+    from src.inventory import build_inventory, write_inventory
+
+    settings = get_settings()
+    payload = build_inventory(settings.parquet_root, settings.database_url)
+    write_inventory(settings.parquet_root, settings.database_url)
+    s = payload["summary"]
+    print(
+        f"datasets_ok={s['datasets_ok']}/{s['datasets_total']} "
+        f"kline_days={s['kline_days']} ready_for_backtest={s['ready_for_backtest']}"
+    )
+    for d in payload["datasets"]:
+        flag = "OK " if d["status"] == "ok" else "MISS"
+        extra = d.get("max_date") or d.get("rows") or d.get("files") or ""
+        print(f"  [{flag}] {d['id']:20} {d['name']}  {extra}")
+    if payload.get("postgres"):
+        print("postgres:", payload["postgres"])
+    return 0 if s["datasets_ok"] > 0 else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="A-share post-close data factory")
     parser.add_argument("-v", "--verbose", action="store_true")
@@ -197,6 +227,16 @@ def main(argv: list[str] | None = None) -> int:
     p_ex.add_argument("--date", default=None)
     p_ex.add_argument("--with-yjbb", action="store_true")
 
+    sub.add_parser("sync-meta", help="Sync calendar + stock_basic + inventory.json")
+    sub.add_parser("status", help="Print / refresh data inventory")
+    p_boot = sub.add_parser(
+        "bootstrap",
+        help="sync-meta + sample daily(limit) for local smoke, or full day without --limit",
+    )
+    p_boot.add_argument("--date", default=None)
+    p_boot.add_argument("--limit", type=int, default=30, help="0 = full market")
+    p_boot.add_argument("--force", action="store_true")
+
     args = parser.parse_args(argv)
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
@@ -215,6 +255,10 @@ def main(argv: list[str] | None = None) -> int:
             run_index_day(day)
         if args.with_extras or args.with_yjbb:
             run_extras(day, yjbb=args.with_yjbb)
+        from src.inventory import write_inventory
+
+        settings = get_settings()
+        write_inventory(settings.parquet_root, settings.database_url)
         return 0
 
     if args.cmd == "backfill":
@@ -224,13 +268,60 @@ def main(argv: list[str] | None = None) -> int:
             limit=args.limit,
             with_hfq=args.with_hfq,
         )
+        from src.inventory import write_inventory
+
+        settings = get_settings()
+        write_inventory(settings.parquet_root, settings.database_url)
         return 0
 
     if args.cmd == "extras":
         day = parse_day(args.date)
         counts = run_extras(day, yjbb=args.with_yjbb)
         logger.info("extras done %s", counts)
+        from src.inventory import write_inventory
+
+        settings = get_settings()
+        write_inventory(settings.parquet_root, settings.database_url)
         return 0
+
+    if args.cmd == "sync-meta":
+        run_sync_meta()
+        return 0
+
+    if args.cmd == "status":
+        return run_status()
+
+    if args.cmd == "bootstrap":
+        run_sync_meta()
+        day = parse_day(args.date)
+        lim = None if args.limit == 0 else args.limit
+        settings = get_settings()
+        run_kline_day(day, limit=lim, with_hfq=True, force=args.force)
+        run_index_day(day)
+        try:
+            run_extras(day, yjbb=True)
+            fund_dir = settings.parquet_root / "meta" / "fundamentals"
+            yjbb_files = sorted(fund_dir.glob("yjbb_*.parquet")) if fund_dir.exists() else []
+            if yjbb_files:
+                import subprocess
+
+                subprocess.run(
+                    [
+                        sys.executable,
+                        str(ROOT / "scripts" / "build_industry_map.py"),
+                        "--yjbb",
+                        str(yjbb_files[-1]),
+                        "--out",
+                        str(settings.parquet_root / "meta" / "industry_map.json"),
+                    ],
+                    check=False,
+                )
+        except Exception:
+            logger.exception("extras failed (non-fatal)")
+        from src.inventory import write_inventory
+
+        write_inventory(settings.parquet_root, settings.database_url)
+        return run_status()
 
     return 1
 
