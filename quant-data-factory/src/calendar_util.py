@@ -11,6 +11,35 @@ def today_cn(tz: str = "Asia/Shanghai") -> date:
     return datetime.now(ZoneInfo(tz)).date()
 
 
+def last_completed_trade_date(
+    tz: str = "Asia/Shanghai",
+    *,
+    after_close_hour: int = 16,
+) -> date:
+    """
+    Default target for post-close jobs.
+
+    Before ``after_close_hour`` (CN), today's session is not finished / BaoStock
+    often returns an empty ``query_all_stock`` list — use the previous session.
+    """
+    now = datetime.now(ZoneInfo(tz))
+    d = now.date()
+    if now.hour < after_close_hour:
+        d -= timedelta(days=1)
+    for _ in range(20):
+        cal = is_trading_day_baostock(d)
+        if cal is True:
+            return d
+        if cal is False:
+            d -= timedelta(days=1)
+            continue
+        # API inconclusive: prefer weekdays
+        if d.weekday() < 5:
+            return d
+        d -= timedelta(days=1)
+    return d
+
+
 def is_trading_day_baostock(day: date) -> bool | None:
     """
     Return True/False if BaoStock calendar knows the day; None on API failure.

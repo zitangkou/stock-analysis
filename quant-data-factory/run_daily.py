@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from src.calendar_util import is_trading_day_baostock, today_cn
+from src.calendar_util import is_trading_day_baostock, last_completed_trade_date
 from src.config import get_settings
 from src.fetchers import akshare_extras, baostock_kline
 from src.storage import (
@@ -32,8 +32,11 @@ logger = logging.getLogger(__name__)
 
 
 def parse_day(s: str | None) -> date:
+    """Explicit --date, or last completed CN session (not 'today' before close)."""
     if not s:
-        return today_cn(get_settings().tz)
+        day = last_completed_trade_date(get_settings().tz)
+        logger.info("default trade_date=%s (last completed session)", day)
+        return day
     return date.fromisoformat(s)
 
 
@@ -65,6 +68,12 @@ def run_kline_day(
         if limit:
             codes = codes[:limit]
         logger.info("symbols=%s day=%s", len(codes), trade_date)
+        if not codes:
+            raise RuntimeError(
+                f"no A-share symbols for {trade_date} "
+                "(pre-open / holiday / BaoStock list empty). "
+                "Omit --date to use last completed session, or pass an explicit trading day."
+            )
 
         df = baostock_kline.fetch_daily_bars(
             codes,

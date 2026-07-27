@@ -31,7 +31,8 @@ echo "== sync-meta =="
 python run_daily.py sync-meta -v
 
 echo "== daily full market (long) =="
-# Prefer last trading day; force rewrite today's file if re-run
+# Default date = last completed CN session (not today before ~16:00).
+# Override: python run_daily.py daily --date YYYY-MM-DD --force ...
 nohup python run_daily.py daily --force --with-index --with-extras --with-yjbb \
   > /var/log/quant-factory-daily.log 2>&1 &
 echo "started pid=$! log=/var/log/quant-factory-daily.log"
