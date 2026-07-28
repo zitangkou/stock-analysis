@@ -158,7 +158,7 @@ export default function DataCenterPanel() {
 
   useEffect(() => {
     if (!selected) return;
-    fetch(`/api/data-bars/${selected}?limit=90`)
+    fetch(`/api/data-bars/${selected}?limit=180`)
       .then((r) => r.json())
       .then((d) => setBars(Array.isArray(d) ? d : []))
       .catch(() => setBars([]));
@@ -173,7 +173,7 @@ export default function DataCenterPanel() {
       setIntraBars([]);
       return;
     }
-    fetch(`/api/v15/bars-intraday/${selected}?interval=${chartIv}&limit=120`)
+    fetch(`/api/v15/bars-intraday/${selected}?interval=${chartIv}&limit=200`)
       .then((r) => r.json())
       .then((d) => setIntraBars(Array.isArray(d.bars) ? d.bars : []))
       .catch(() => setIntraBars([]));
@@ -188,7 +188,7 @@ export default function DataCenterPanel() {
 
   const candles = useMemo(() => {
     if (chartIv === "1d") {
-      return bars.slice(-60).map((b) => ({
+      return bars.slice(-120).map((b) => ({
         label: b.date,
         open: b.open,
         high: b.high,
@@ -426,8 +426,11 @@ export default function DataCenterPanel() {
                 </span>
               </div>
 
-              <CandleChart candles={candles} height={150} />
-
+              <CandleChart candles={candles} height={280} showMa showMacd />
+              <div className="text-[10px] text-slate-600 leading-relaxed">
+                MA/MACD 由 K 线收盘价计算，无需额外行情源。分钟线密度取决于盘中快照（约 3
+                分钟/点）；要更接近同花顺可把 QUOTE_INTERVAL_SEC 调到 60。
+              </div>
               <div className="mt-2 overflow-y-auto flex-1 min-h-0 text-[10px] font-mono">
                 <div className="sticky top-0 bg-[#0b1220] text-slate-500 flex gap-2 pb-1 border-b border-slate-800">
                   <span className="w-[72px]">{chartIv === "1d" ? "日期" : "时间"}</span>
