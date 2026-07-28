@@ -28,22 +28,32 @@ python -m src.cli ingest-limit-up
 python -m src.cli ingest-money-flow
 ```
 
-## V2（分钟 K 已可用）
+## V2（分钟 K + 专业图）
 
 | 能力 | 状态 |
 |---|---|
-| 5 / 15 / 30 分钟 K | `bars_intraday` + `aggregate-intraday`（从 `quotes_snapshot` 聚合） |
-| 数据中心 | 日K / 5分 / 15分 / 30分 蜡烛图 + 量能 |
-| 舆情事件表 | `sentiment_events` 占位 |
-| 真主力资金 | 仍用 proxy |
-| L2 | 不做 |
-
-**前提：** 盘中 `run-quotes` 在写 `quotes_snapshot`（默认约 180 秒一轮）。收盘后仍可对当日快照做聚合。
+| 5 / 15 / 30 分钟 K | `bars_intraday` + `aggregate-intraday` |
+| 盘中快照 | 默认 **60s**（`QUOTE_INTERVAL_SEC`） |
+| 图表 | lightweight-charts：蜡烛 / MA / BOLL / MACD / KDJ、十字光标、滚轮缩放 |
+| 常驻 | `stock-quotes.service` + cron `*/5` 聚合 |
+| 舆情表 | `sentiment_events` 占位 |
+| L2 / 真主力 | 不做 |
 
 ```bash
+# collector/.env
+QUOTE_INTERVAL_SEC=60
+
 python -m src.cli init-db
 python -m src.cli aggregate-intraday --hours 48
-# API: GET /api/v15/bars-intraday/:code?interval=5|15|30
+
+# 常驻行情
+sudo cp deploy/stock-quotes.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now stock-quotes
+
+# 交易时段每 5 分钟聚合分钟 K
+chmod +x deploy/cron_intraday.sh
+crontab -e
+# */5 9-15 * * 1-5 /opt/stock-analysis/collector/deploy/cron_intraday.sh >> /var/log/stock-intraday.log 2>&1
 ```
 
 ## 明确不做（长期）

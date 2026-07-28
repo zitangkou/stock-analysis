@@ -99,6 +99,10 @@ export default function DataCenterPanel() {
   const [bars, setBars] = useState<Bar[]>([]);
   const [intraBars, setIntraBars] = useState<IntraBar[]>([]);
   const [chartIv, setChartIv] = useState<ChartInterval>("1d");
+  const [showMa, setShowMa] = useState(true);
+  const [showBoll, setShowBoll] = useState(true);
+  const [showMacd, setShowMacd] = useState(true);
+  const [showKdj, setShowKdj] = useState(false);
   const [quote, setQuote] = useState<QuoteRow | null>(null);
   const [query, setQuery] = useState("");
   const [searchHits, setSearchHits] = useState<QuoteRow[] | null>(null);
@@ -399,7 +403,7 @@ export default function DataCenterPanel() {
                 </div>
               </div>
 
-              <div className="flex gap-1 mb-1.5 text-[10px]">
+              <div className="flex gap-1 mb-1.5 text-[10px] flex-wrap items-center">
                 {(
                   [
                     ["1d", "日K"],
@@ -421,15 +425,44 @@ export default function DataCenterPanel() {
                     {label}
                   </button>
                 ))}
+                <span className="text-slate-700 mx-1">|</span>
+                {(
+                  [
+                    ["MA", showMa, () => setShowMa((v) => !v)],
+                    ["BOLL", showBoll, () => setShowBoll((v) => !v)],
+                    ["MACD", showMacd, () => setShowMacd((v) => !v)],
+                    ["KDJ", showKdj, () => setShowKdj((v) => !v)],
+                  ] as const
+                ).map(([label, on, toggle]) => (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={toggle}
+                    className={`px-2 py-0.5 rounded border cursor-pointer ${
+                      on
+                        ? "border-amber-600/50 bg-amber-500/10 text-amber-300"
+                        : "border-slate-800 text-slate-600"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
                 <span className="ml-auto text-slate-600 font-mono self-center">
                   {candles.length} 根
                 </span>
               </div>
 
-              <CandleChart candles={candles} height={280} showMa showMacd />
+              <CandleChart
+                candles={candles}
+                height={400}
+                showMa={showMa}
+                showBoll={showBoll}
+                showMacd={showMacd}
+                showKdj={showKdj}
+              />
               <div className="text-[10px] text-slate-600 leading-relaxed">
-                MA/MACD 由 K 线收盘价计算，无需额外行情源。分钟线密度取决于盘中快照（约 3
-                分钟/点）；要更接近同花顺可把 QUOTE_INTERVAL_SEC 调到 60。
+                指标由 OHLC 计算。滚轮缩放、拖拽平移、十字光标。分钟密度依赖盘中 60s 快照 +
+                aggregate-intraday。
               </div>
               <div className="mt-2 overflow-y-auto flex-1 min-h-0 text-[10px] font-mono">
                 <div className="sticky top-0 bg-[#0b1220] text-slate-500 flex gap-2 pb-1 border-b border-slate-800">
