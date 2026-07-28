@@ -14,7 +14,12 @@ import {
   getRotationMatrix,
   getTerminalOverview,
 } from "./server/terminalData.js";
-import { getBarSeries, getDataStatus } from "./server/dataStatus.js";
+import {
+  getBarSeries,
+  getDataStatus,
+  getQuoteDetail,
+  searchQuotes,
+} from "./server/dataStatus.js";
 
 async function startServer() {
   const app = express();
@@ -55,6 +60,29 @@ async function startServer() {
       res.json(await getBarSeries(req.params.code, limit));
     } catch (err: any) {
       res.status(500).json({ error: err.message || "data-bars failed" });
+    }
+  });
+
+  app.get("/api/data-search", async (req, res) => {
+    try {
+      const q = String(req.query.q || "");
+      const limit = Math.min(Number(req.query.limit) || 50, 100);
+      res.json({ q, results: await searchQuotes(q, limit) });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "data-search failed" });
+    }
+  });
+
+  app.get("/api/data-quote/:code", async (req, res) => {
+    try {
+      const row = await getQuoteDetail(req.params.code);
+      if (!row) {
+        res.status(404).json({ error: "not found" });
+        return;
+      }
+      res.json(row);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "data-quote failed" });
     }
   });
 

@@ -27,13 +27,7 @@ export async function getDataStatus(): Promise<{
   inventoryFile: string | null;
   datasets: DatasetStatus[];
   postgres: Record<string, unknown> | null;
-  quotesPreview: Array<{
-    code: string;
-    name: string;
-    price: number;
-    changePct: number;
-    amount: number;
-  }>;
+  quotesPreview: QuoteRow[];
   barCoverage: { min: string | null; max: string | null; rows: number; codes: number } | null;
   notInV1: string[];
 }> {
@@ -71,13 +65,7 @@ export async function getDataStatus(): Promise<{
       ];
 
   let postgres: Record<string, unknown> | null = inventory?.postgres ?? null;
-  let quotesPreview: Array<{
-    code: string;
-    name: string;
-    price: number;
-    changePct: number;
-    amount: number;
-  }> = [];
+  let quotesPreview: QuoteRow[] = [];
   let barCoverage: {
     min: string | null;
     max: string | null;
@@ -164,23 +152,19 @@ export async function getDataStatus(): Promise<{
         name: string;
         price: number | string | null;
         change_pct: number | string | null;
+        volume: number | string | null;
         amount: number | string | null;
+        turnover_rate: number | string | null;
       }>(
         `
-        SELECT i.code, i.name, q.price, q.change_pct, q.amount
+        SELECT i.code, i.name, q.price, q.change_pct, q.volume, q.amount, q.turnover_rate
         FROM quotes_latest q
         JOIN instruments i ON i.code = q.code
         ORDER BY q.amount DESC NULLS LAST
-        LIMIT 30
+        LIMIT 80
         `
       );
-      quotesPreview = preview.map((r) => ({
-        code: r.code,
-        name: r.name,
-        price: Number(r.price) || 0,
-        changePct: Number(r.change_pct) || 0,
-        amount: Number(r.amount) || 0,
-      }));
+      quotesPreview = preview.map(mapQuoteRow);
     } catch (err: any) {
       postgres = { connected: false, error: err?.message || String(err) };
     }
@@ -203,6 +187,87 @@ export async function getDataStatus(): Promise<{
   };
 }
 
+export type QuoteRow = {
+  code: string;
+  name: string;
+  price: number;
+  changePct: number;
+  volume: number;
+  amount: number;
+  turnoverRate: number;
+};
+
+function mapQuoteRow(r: {
+  code: string;
+  name: string;
+  price: number | string | null;
+  change_pct: number | string | null;
+  volume: number | string | null;
+  amount: number | string | null;
+  turnover_rate: number | string | null;
+}): QuoteRow {
+  return {
+    code: r.code,
+    name: r.name || r.code,
+    price: Number(r.price) || 0,
+    changePct: Number(r.change_pct) || 0,
+    volume: Number(r.volume) || 0,
+    amount: Number(r.amount) || 0,
+    turnoverRate: Number(r.turnover_rate) || 0,
+  };
+}
+
+/** Search instruments by code or name (partial match). */
+export async function searchQuotes(q: string, limit = 50): Promise<QuoteRow[]> {
+  if (!isDbConfigured()) return [];
+  const raw = q.trim();
+  if (!raw) return [];
+  const like = `%${raw}%`;
+  const rows = await query<{
+    code: string;
+    name: string;
+    price: number | string | null;
+    change_pct: number | string | null;
+    volume: number | string | null;
+    amount: number | string | null;
+    turnover_rate: number | string | null;
+  }>(
+    `
+    SELECT i.code, i.name, q.price, q.change_pct, q.volume, q.amount, q.turnover_rate
+    FROM instruments i
+    LEFT JOIN quotes_latest q ON q.code = i.code
+    WHERE i.code ILIKE $1 OR i.name ILIKE $1
+    ORDER BY q.amount DESC NULLS LAST, i.code
+    LIMIT $2
+    `,
+    [like, Math.min(Math.max(limit, 1), 100)]
+  );
+  return rows.map(mapQuoteRow);
+}
+
+export async function getQuoteDetail(code: string): Promise<QuoteRow | null> {
+  if (!isDbConfigured()) return null;
+  const rows = await query<{
+    code: string;
+    name: string;
+    price: number | string | null;
+    change_pct: number | string | null;
+    volume: number | string | null;
+    amount: number | string | null;
+    turnover_rate: number | string | null;
+  }>(
+    `
+    SELECT i.code, i.name, q.price, q.change_pct, q.volume, q.amount, q.turnover_rate
+    FROM instruments i
+    LEFT JOIN quotes_latest q ON q.code = i.code
+    WHERE i.code = $1
+    LIMIT 1
+    `,
+    [code]
+  );
+  return rows[0] ? mapQuoteRow(rows[0]) : null;
+}
+
 export async function getBarSeries(code: string, limit = 120) {
   if (!isDbConfigured()) {
     return [];
@@ -216,9 +281,10 @@ export async function getBarSeries(code: string, limit = 120) {
     volume: number | string | null;
     amount: number | string | null;
     change_pct: number | string | null;
+    turnover_rate: number | string | null;
   }>(
     `
-    SELECT trade_date, open, high, low, close, volume, amount, change_pct
+    SELECT trade_date, open, high, low, close, volume, amount, change_pct, turnover_rate
     FROM bars_1d
     WHERE code = $1
     ORDER BY trade_date DESC
@@ -236,6 +302,7 @@ export async function getBarSeries(code: string, limit = 120) {
       volume: Number(r.volume) || 0,
       amount: Number(r.amount) || 0,
       changePct: Number(r.change_pct) || 0,
+      turnoverRate: Number(r.turnover_rate) || 0,
     }))
     .reverse();
 }
