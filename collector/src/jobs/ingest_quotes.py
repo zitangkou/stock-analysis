@@ -159,6 +159,12 @@ def run(force: bool = False) -> int:
             compute_heat()
         except Exception:
             logger.exception("compute-heat after quotes failed (non-fatal)")
+        try:
+            from .aggregate_bars_intraday import run as aggregate_intraday
+
+            aggregate_intraday(lookback_hours=12)
+        except Exception:
+            logger.exception("aggregate-intraday after quotes failed (non-fatal)")
         return rows
     except Exception as exc:
         finish_job(job_id, "failed", message=str(exc))

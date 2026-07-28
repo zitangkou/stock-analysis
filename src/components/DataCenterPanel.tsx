@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { CheckCircle2, CircleAlert, Database, LineChart, Search } from "lucide-react";
+import CandleChart from "./CandleChart";
 
 type Dataset = {
   id: string;
@@ -46,6 +47,19 @@ type Bar = {
   turnoverRate?: number;
 };
 
+type IntraBar = {
+  ts: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+  amount: number;
+  changePct: number;
+};
+
+type ChartInterval = "1d" | "5" | "15" | "30";
+
 type LimitUpRow = {
   code: string;
   name: string;
@@ -83,6 +97,8 @@ export default function DataCenterPanel() {
   const [err, setErr] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
   const [bars, setBars] = useState<Bar[]>([]);
+  const [intraBars, setIntraBars] = useState<IntraBar[]>([]);
+  const [chartIv, setChartIv] = useState<ChartInterval>("1d");
   const [quote, setQuote] = useState<QuoteRow | null>(null);
   const [query, setQuery] = useState("");
   const [searchHits, setSearchHits] = useState<QuoteRow[] | null>(null);
@@ -152,6 +168,17 @@ export default function DataCenterPanel() {
       .catch(() => setQuote(null));
   }, [selected]);
 
+  useEffect(() => {
+    if (!selected || chartIv === "1d") {
+      setIntraBars([]);
+      return;
+    }
+    fetch(`/api/v15/bars-intraday/${selected}?interval=${chartIv}&limit=120`)
+      .then((r) => r.json())
+      .then((d) => setIntraBars(Array.isArray(d.bars) ? d.bars : []))
+      .catch(() => setIntraBars([]));
+  }, [selected, chartIv]);
+
   const listRows = searchHits ?? data?.quotesPreview ?? [];
 
   const okCount = useMemo(
@@ -159,21 +186,26 @@ export default function DataCenterPanel() {
     [data]
   );
 
-  const spark = useMemo(() => {
-    if (bars.length < 2) return "";
-    const closes = bars.map((b) => b.close);
-    const min = Math.min(...closes);
-    const max = Math.max(...closes);
-    const w = 280;
-    const h = 80;
-    return closes
-      .map((c, i) => {
-        const x = (i / (closes.length - 1)) * w;
-        const y = h - ((c - min) / Math.max(max - min, 1e-6)) * (h - 8) - 4;
-        return `${x},${y}`;
-      })
-      .join(" ");
-  }, [bars]);
+  const candles = useMemo(() => {
+    if (chartIv === "1d") {
+      return bars.slice(-60).map((b) => ({
+        label: b.date,
+        open: b.open,
+        high: b.high,
+        low: b.low,
+        close: b.close,
+        volume: b.volume,
+      }));
+    }
+    return intraBars.map((b) => ({
+      label: b.ts,
+      open: b.open,
+      high: b.high,
+      low: b.low,
+      close: b.close,
+      volume: b.volume,
+    }));
+  }, [chartIv, bars, intraBars]);
 
   const latestBar = bars.length ? bars[bars.length - 1] : null;
 
@@ -367,48 +399,91 @@ export default function DataCenterPanel() {
                 </div>
               </div>
 
-              {spark ? (
-                <svg viewBox="0 0 280 80" className="w-full h-20 text-red-400 shrink-0">
-                  <polyline
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                    points={spark}
-                  />
-                </svg>
-              ) : (
-                <div className="h-20 flex items-center justify-center text-[11px] text-slate-500">
-                  无日K（该股可能不在 universe / 未 ingest-bars）
-                </div>
-              )}
+              <div className="flex gap-1 mb-1.5 text-[10px]">
+                {(
+                  [
+                    ["1d", "日K"],
+                    ["5", "5分"],
+                    ["15", "15分"],
+                    ["30", "30分"],
+                  ] as const
+                ).map(([id, label]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setChartIv(id)}
+                    className={`px-2 py-0.5 rounded border cursor-pointer ${
+                      chartIv === id
+                        ? "border-sky-600/60 bg-sky-500/10 text-sky-300"
+                        : "border-slate-800 text-slate-500"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+                <span className="ml-auto text-slate-600 font-mono self-center">
+                  {candles.length} 根
+                </span>
+              </div>
+
+              <CandleChart candles={candles} height={150} />
 
               <div className="mt-2 overflow-y-auto flex-1 min-h-0 text-[10px] font-mono">
                 <div className="sticky top-0 bg-[#0b1220] text-slate-500 flex gap-2 pb-1 border-b border-slate-800">
-                  <span className="w-[72px]">日期</span>
-                  <span className="flex-1 text-right">收盘</span>
-                  <span className="w-14 text-right">涨跌%</span>
-                  <span className="w-14 text-right">额</span>
+                  <span className="w-[72px]">{chartIv === "1d" ? "日期" : "时间"}</span>
+                  <span className="w-10 text-right">开</span>
+                  <span className="w-10 text-right">高</span>
+                  <span className="w-10 text-right">低</span>
+                  <span className="flex-1 text-right">收</span>
                   <span className="w-12 text-right">量</span>
                 </div>
-                {[...bars].reverse().slice(0, 20).map((b) => (
-                  <div
-                    key={b.date}
-                    className="flex gap-2 border-b border-slate-800/50 py-1 text-slate-400"
-                  >
-                    <span className="w-[72px]">{b.date}</span>
-                    <span className="flex-1 text-right text-slate-200">{b.close.toFixed(2)}</span>
-                    <span
-                      className={`w-14 text-right ${
-                        b.changePct >= 0 ? "text-red-400" : "text-emerald-400"
-                      }`}
-                    >
-                      {b.changePct >= 0 ? "+" : ""}
-                      {b.changePct.toFixed(2)}
-                    </span>
-                    <span className="w-14 text-right">{fmtAmt(b.amount)}</span>
-                    <span className="w-12 text-right">{fmtVol(b.volume)}</span>
-                  </div>
-                ))}
+                {chartIv === "1d"
+                  ? [...bars].reverse().slice(0, 20).map((b) => (
+                      <div
+                        key={b.date}
+                        className="flex gap-2 border-b border-slate-800/50 py-1 text-slate-400"
+                      >
+                        <span className="w-[72px]">{b.date}</span>
+                        <span className="w-10 text-right">{b.open.toFixed(2)}</span>
+                        <span className="w-10 text-right">{b.high.toFixed(2)}</span>
+                        <span className="w-10 text-right">{b.low.toFixed(2)}</span>
+                        <span
+                          className={`flex-1 text-right ${
+                            b.changePct >= 0 ? "text-red-400" : "text-emerald-400"
+                          }`}
+                        >
+                          {b.close.toFixed(2)}
+                        </span>
+                        <span className="w-12 text-right">{fmtVol(b.volume)}</span>
+                      </div>
+                    ))
+                  : [...intraBars].reverse().slice(0, 24).map((b) => (
+                      <div
+                        key={b.ts}
+                        className="flex gap-2 border-b border-slate-800/50 py-1 text-slate-400"
+                      >
+                        <span className="w-[72px]">
+                          {new Date(b.ts).toLocaleString("zh-CN", {
+                            month: "2-digit",
+                            day: "2-digit",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                            hour12: false,
+                          })}
+                        </span>
+                        <span className="w-10 text-right">{b.open.toFixed(2)}</span>
+                        <span className="w-10 text-right">{b.high.toFixed(2)}</span>
+                        <span className="w-10 text-right">{b.low.toFixed(2)}</span>
+                        <span
+                          className={`flex-1 text-right ${
+                            b.close >= b.open ? "text-red-400" : "text-emerald-400"
+                          }`}
+                        >
+                          {b.close.toFixed(2)}
+                        </span>
+                        <span className="w-12 text-right">{fmtVol(b.volume)}</span>
+                      </div>
+                    ))}
               </div>
             </div>
           </div>

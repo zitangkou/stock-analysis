@@ -122,7 +122,63 @@ export async function getConcepts(q?: string) {
 }
 
 export async function getBars5m(code: string, limit = 96) {
+  return getBarsIntraday(code, 5, limit);
+}
+
+/** Intraday OHLC: interval 5 | 15 | 30 (minutes). */
+export async function getBarsIntraday(
+  code: string,
+  intervalM: number = 5,
+  limit = 96
+) {
   if (!isDbConfigured()) return [];
+  const iv = [5, 15, 30].includes(intervalM) ? intervalM : 5;
+  const lim = Math.min(Math.max(limit, 1), 400);
+
+  // Prefer bars_intraday; fall back to bars_5m for interval=5
+  try {
+    const rows = await query<{
+      bar_ts: Date | string;
+      open: number | string | null;
+      high: number | string | null;
+      low: number | string | null;
+      close: number | string | null;
+      volume: number | string | null;
+      amount: number | string | null;
+      change_pct: number | string | null;
+      n_ticks: number | string | null;
+    }>(
+      `
+      SELECT bar_ts, open, high, low, close, volume, amount, change_pct, n_ticks
+      FROM bars_intraday
+      WHERE code = $1 AND interval_m = $2
+      ORDER BY bar_ts DESC
+      LIMIT $3
+      `,
+      [code, iv, lim]
+    );
+    if (rows.length) {
+      return rows
+        .map((r) => ({
+          ts: new Date(r.bar_ts).toISOString(),
+          intervalM: iv,
+          open: Number(r.open) || 0,
+          high: Number(r.high) || 0,
+          low: Number(r.low) || 0,
+          close: Number(r.close) || 0,
+          volume: Number(r.volume) || 0,
+          amount: Number(r.amount) || 0,
+          changePct: Number(r.change_pct) || 0,
+          nTicks: Number(r.n_ticks) || 0,
+        }))
+        .reverse();
+    }
+  } catch {
+    // table may not exist yet
+  }
+
+  if (iv !== 5) return [];
+
   const rows = await query<{
     bar_ts: Date | string;
     open: number | string | null;
@@ -141,11 +197,12 @@ export async function getBars5m(code: string, limit = 96) {
     ORDER BY bar_ts DESC
     LIMIT $2
     `,
-    [code, limit]
+    [code, lim]
   );
   return rows
     .map((r) => ({
       ts: new Date(r.bar_ts).toISOString(),
+      intervalM: 5,
       open: Number(r.open) || 0,
       high: Number(r.high) || 0,
       low: Number(r.low) || 0,

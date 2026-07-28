@@ -22,6 +22,7 @@ import {
 } from "./server/dataStatus.js";
 import {
   getBars5m,
+  getBarsIntraday,
   getConcepts,
   getLimitUpPool,
   getMoneyFlowTop,
@@ -118,10 +119,24 @@ async function startServer() {
 
   app.get("/api/v15/bars-5m/:code", async (req, res) => {
     try {
-      const limit = Math.min(Number(req.query.limit) || 96, 300);
+      const limit = Math.min(Number(req.query.limit) || 96, 400);
       res.json(await getBars5m(req.params.code, limit));
     } catch (err: any) {
       res.status(500).json({ error: err.message || "bars-5m failed" });
+    }
+  });
+
+  app.get("/api/v15/bars-intraday/:code", async (req, res) => {
+    try {
+      const interval = Number(req.query.interval) || 5;
+      const limit = Math.min(Number(req.query.limit) || 120, 400);
+      res.json({
+        code: req.params.code,
+        interval,
+        bars: await getBarsIntraday(req.params.code, interval, limit),
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "bars-intraday failed" });
     }
   });
 

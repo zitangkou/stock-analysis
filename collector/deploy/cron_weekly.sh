@@ -16,4 +16,4 @@ python -m src.cli ingest-bars --days 30 --sleep 2
 python -m src.cli rebuild-universe
 python -m src.cli ingest-quotes --force
 python -m src.cli compute-heat
-python -m src.cli aggregate-bars-5m --hours 24 || true
+python -m src.cli aggregate-intraday --hours 48 || true

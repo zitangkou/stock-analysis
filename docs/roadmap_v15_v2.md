@@ -28,18 +28,22 @@ python -m src.cli ingest-limit-up
 python -m src.cli ingest-money-flow
 ```
 
-## V2（骨架已建，按需加深）
+## V2（分钟 K 已可用）
 
 | 能力 | 状态 |
 |---|---|
-| 5 分钟 K | `bars_5m` + `aggregate-bars-5m`（从 `quotes_snapshot` 聚合，非整市场 tick） |
-| 舆情事件表 | `sentiment_events` 占位；暂无全量股吧/新闻爬虫 |
-| 真主力资金 | 未接商用源；仍用 proxy，待验证稳定源后再换 |
-| L2 | 明确不做（个人机扛不住且无合规源） |
+| 5 / 15 / 30 分钟 K | `bars_intraday` + `aggregate-intraday`（从 `quotes_snapshot` 聚合） |
+| 数据中心 | 日K / 5分 / 15分 / 30分 蜡烛图 + 量能 |
+| 舆情事件表 | `sentiment_events` 占位 |
+| 真主力资金 | 仍用 proxy |
+| L2 | 不做 |
+
+**前提：** 盘中 `run-quotes` 在写 `quotes_snapshot`（默认约 180 秒一轮）。收盘后仍可对当日快照做聚合。
 
 ```bash
-python -m src.cli aggregate-bars-5m --hours 8
-# API: GET /api/v15/bars-5m/:code
+python -m src.cli init-db
+python -m src.cli aggregate-intraday --hours 48
+# API: GET /api/v15/bars-intraday/:code?interval=5|15|30
 ```
 
 ## 明确不做（长期）

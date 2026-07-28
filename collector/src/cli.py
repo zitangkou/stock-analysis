@@ -90,10 +90,22 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_5m = sub.add_parser(
         "aggregate-bars-5m",
-        help="V2: aggregate quotes_snapshot → bars_5m",
+        help="V2: aggregate quotes_snapshot → bars_intraday (5/15/30m)",
     )
-    p_5m.add_argument("--hours", type=int, default=8, help="Lookback hours")
-    p_5m.add_argument("--bucket", type=int, default=5, help="Bucket minutes")
+    p_5m.add_argument("--hours", type=int, default=24, help="Lookback hours")
+    p_5m.add_argument(
+        "--bucket",
+        type=int,
+        default=None,
+        help="Single bucket minutes (5/15/30); default=all three",
+    )
+
+    p_intra = sub.add_parser(
+        "aggregate-intraday",
+        help="Same as aggregate-bars-5m (preferred name)",
+    )
+    p_intra.add_argument("--hours", type=int, default=24)
+    p_intra.add_argument("--bucket", type=int, default=None)
 
     sub.add_parser("bootstrap", help="init-db + calendar + instruments + fundamentals + universe")
 
@@ -182,8 +194,8 @@ def main(argv: list[str] | None = None) -> int:
 
         run()
         return 0
-    if args.cmd == "aggregate-bars-5m":
-        from src.jobs.aggregate_bars_5m import run
+    if args.cmd == "aggregate-bars-5m" or args.cmd == "aggregate-intraday":
+        from src.jobs.aggregate_bars_intraday import run
 
         run(lookback_hours=args.hours, bucket_minutes=args.bucket)
         return 0
