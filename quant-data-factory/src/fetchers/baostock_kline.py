@@ -130,7 +130,9 @@ def fetch_adjust_factor(
     import baostock as bs
 
     rows: list[dict] = []
+    n = 0
     for code in codes:
+        n += 1
         rs = bs.query_history_k_data_plus(
             code,
             "date,code,close",
@@ -154,4 +156,6 @@ def fetch_adjust_factor(
             )
         if sleep > 0:
             time.sleep(sleep)
+        if n % 200 == 0:
+            logger.info("hfq factor progress %s symbols...", n)
     return pd.DataFrame(rows)
