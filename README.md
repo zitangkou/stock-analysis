@@ -49,8 +49,10 @@ cd quant_lab && ./sync.sh && python examples/duckdb_smoke.py
 
 1. ~~云上 Postgres + 股池 + 快照 + 日线~~
 2. ~~题材映射（`apply-themes` / 本地行业）~~
-3. **Phase-1 七模块终端 + 落库热力** — 见 [`docs/module_table_job_map.md`](docs/module_table_job_map.md)
-4. 后续：真实资金/涨停源验证、概念 CSV 导入、舆情
+3. ~~Phase-1 七模块终端 + 落库热力~~
+4. ~~盘后 Parquet 工厂 + 数据中心~~
+5. **V1.5** 板别涨停池 / 资金代理落库 / 概念 CSV — 见 [`docs/roadmap_v15_v2.md`](docs/roadmap_v15_v2.md)
+6. **V2** 5 分钟 K（snapshot 聚合）+ 舆情表占位；真资金/L2/全量舆情仍不做
 
 观察对象是 **半导体 / 军工 / 证券 / 电力** 等题材，不是沪深创业板。
 

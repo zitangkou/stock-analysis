@@ -46,6 +46,23 @@ type Bar = {
   turnoverRate?: number;
 };
 
+type LimitUpRow = {
+  code: string;
+  name: string;
+  board: string;
+  changePct: number;
+  amount: number;
+  thresholdPct: number;
+};
+
+type FlowRow = {
+  code: string;
+  name: string;
+  netInflow: number;
+  amount: number;
+  changePct: number;
+};
+
 function fmtAmt(n: number): string {
   if (!n || !Number.isFinite(n)) return "—";
   const abs = Math.abs(n);
@@ -56,7 +73,6 @@ function fmtAmt(n: number): string {
 
 function fmtVol(n: number): string {
   if (!n || !Number.isFinite(n)) return "—";
-  // Sina volume often in 手 (100 shares); show as-is with 万手 when large
   const abs = Math.abs(n);
   if (abs >= 1e4) return `${(n / 1e4).toFixed(1)}万`;
   return n.toFixed(0);
@@ -71,6 +87,15 @@ export default function DataCenterPanel() {
   const [query, setQuery] = useState("");
   const [searchHits, setSearchHits] = useState<QuoteRow[] | null>(null);
   const [searching, setSearching] = useState(false);
+  const [sideTab, setSideTab] = useState<"cover" | "limit" | "flow">("cover");
+  const [limitUp, setLimitUp] = useState<{ tradeDate: string | null; rows: LimitUpRow[] } | null>(
+    null
+  );
+  const [moneyFlow, setMoneyFlow] = useState<{
+    tradeDate: string | null;
+    dataQuality?: string;
+    rows: FlowRow[];
+  } | null>(null);
 
   const load = () => {
     fetch("/api/data-status")
@@ -82,6 +107,14 @@ export default function DataCenterPanel() {
         }
       })
       .catch((e) => setErr(String(e)));
+    fetch("/api/v15/limit-up")
+      .then((r) => r.json())
+      .then((d) => setLimitUp(d))
+      .catch(() => setLimitUp(null));
+    fetch("/api/v15/money-flow")
+      .then((r) => r.json())
+      .then((d) => setMoneyFlow(d))
+      .catch(() => setMoneyFlow(null));
   };
 
   useEffect(() => {
@@ -157,6 +190,7 @@ export default function DataCenterPanel() {
                 : "加载中…"}
               {" · "}
               数据集 OK {okCount}/{data?.datasets?.length ?? 0}
+              {" · V1.5 涨停/资金"}
             </div>
           </div>
         </div>
@@ -380,44 +414,132 @@ export default function DataCenterPanel() {
           </div>
         </div>
 
-        <div className="rounded-xl border border-slate-800 bg-[#0b1220] p-3 space-y-3 text-xs">
-          <div className="text-slate-400">覆盖摘要</div>
-          <div className="rounded-lg bg-slate-950/60 border border-slate-800 p-3 space-y-1">
-            <div className="text-slate-500">Postgres 日K</div>
-            <div className="font-mono text-slate-200">
-              {data?.barCoverage
-                ? `${data.barCoverage.min} → ${data.barCoverage.max}`
-                : "—"}
-            </div>
-            <div className="text-slate-500">
-              {data?.barCoverage
-                ? `${data.barCoverage.codes} 只 · ${data.barCoverage.rows} 行`
-                : ""}
-            </div>
+        <div className="rounded-xl border border-slate-800 bg-[#0b1220] p-3 space-y-3 text-xs flex flex-col min-h-0">
+          <div className="flex gap-1 text-[10px]">
+            {(
+              [
+                ["cover", "覆盖"],
+                ["limit", `涨停(${limitUp?.rows?.length ?? 0})`],
+                ["flow", "资金"],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setSideTab(id)}
+                className={`px-2 py-1 rounded border cursor-pointer ${
+                  sideTab === id
+                    ? "border-sky-600/60 bg-sky-500/10 text-sky-300"
+                    : "border-slate-800 text-slate-500"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
           </div>
-          <div className="rounded-lg bg-slate-950/60 border border-slate-800 p-3 space-y-1">
-            <div className="text-slate-500">Parquet 根目录</div>
-            <div className="font-mono text-[10px] text-slate-400 break-all">
-              {data?.parquetRoot || "—"}
+
+          {sideTab === "cover" && (
+            <div className="space-y-3 overflow-y-auto">
+              <div className="rounded-lg bg-slate-950/60 border border-slate-800 p-3 space-y-1">
+                <div className="text-slate-500">Postgres 日K</div>
+                <div className="font-mono text-slate-200">
+                  {data?.barCoverage
+                    ? `${data.barCoverage.min} → ${data.barCoverage.max}`
+                    : "—"}
+                </div>
+                <div className="text-slate-500">
+                  {data?.barCoverage
+                    ? `${data.barCoverage.codes} 只 · ${data.barCoverage.rows} 行`
+                    : ""}
+                </div>
+              </div>
+              <div className="rounded-lg bg-slate-950/60 border border-slate-800 p-3 text-[10px] text-slate-400 leading-relaxed space-y-1">
+                <p>搜索覆盖全部 instruments；列表默认成交额 Top。</p>
+                <p>V1.5：板别涨停池、资金代理、概念 CSV。</p>
+                <p>V2：5 分钟 K 由 quotes_snapshot 聚合；舆情表已占位。</p>
+              </div>
+              <div className="rounded-lg bg-slate-950/60 border border-slate-800 p-3">
+                <div className="text-slate-500 mb-1">仍不做</div>
+                <ul className="text-[10px] text-slate-400 space-y-0.5 list-disc list-inside">
+                  <li>L2 / 逐笔</li>
+                  <li>真主力资金商用源</li>
+                  <li>股吧/新闻全量爬取</li>
+                </ul>
+              </div>
             </div>
-            <div className="text-slate-500 mt-1">
-              inventory: {data?.inventoryFile ? "已生成" : "未生成"}
-            </div>
-          </div>
-          <div className="rounded-lg bg-slate-950/60 border border-slate-800 p-3 text-[10px] text-slate-400 leading-relaxed space-y-1">
-            <div className="text-slate-500 mb-1">说明</div>
-            <p>默认列表按成交额 Top；搜索可查全部 instruments。</p>
-            <p>成交额/量/换手来自盘中 quotes 与 bars_1d。</p>
-            <p>真主力资金流、北向个股明细不在 V1；全市场北向/龙虎榜在左侧 Parquet 清单。</p>
-          </div>
-          <div className="rounded-lg bg-slate-950/60 border border-slate-800 p-3">
-            <div className="text-slate-500 mb-1">V1 明确不做</div>
-            <ul className="text-[10px] text-slate-400 space-y-0.5 list-disc list-inside">
-              {(data?.notInV1 || []).map((x) => (
-                <li key={x}>{x}</li>
+          )}
+
+          {sideTab === "limit" && (
+            <div className="overflow-y-auto flex-1 min-h-0 space-y-1">
+              <div className="text-[10px] text-slate-500 font-mono mb-1">
+                {limitUp?.tradeDate || "无数据"} · 主板≥9.5% / 创业板≥19.5% / ST≥4.8%
+              </div>
+              {(limitUp?.rows || []).map((r) => (
+                <button
+                  key={r.code}
+                  type="button"
+                  onClick={() => setSelected(r.code)}
+                  className="w-full text-left px-2 py-1.5 rounded border border-slate-800 hover:bg-slate-800/40 cursor-pointer"
+                >
+                  <div className="flex justify-between gap-2">
+                    <span className="text-slate-200">{r.name}</span>
+                    <span className="font-mono text-red-400">+{r.changePct.toFixed(2)}%</span>
+                  </div>
+                  <div className="text-[10px] text-slate-500 font-mono flex justify-between">
+                    <span>
+                      {r.code} · {r.board}
+                    </span>
+                    <span>{fmtAmt(r.amount)}</span>
+                  </div>
+                </button>
               ))}
-            </ul>
-          </div>
+              {!limitUp?.rows?.length && (
+                <div className="text-slate-500 text-[11px] py-6 text-center">
+                  暂无涨停池。跑 ingest-quotes / compute-heat 后生成。
+                </div>
+              )}
+            </div>
+          )}
+
+          {sideTab === "flow" && (
+            <div className="overflow-y-auto flex-1 min-h-0 space-y-1">
+              <div className="text-[10px] text-slate-500 font-mono mb-1">
+                {moneyFlow?.tradeDate || "无数据"} · quality=
+                {moneyFlow?.dataQuality || "proxy"}（额×涨跌，非真主力）
+              </div>
+              {(moneyFlow?.rows || []).map((r) => (
+                <button
+                  key={r.code}
+                  type="button"
+                  onClick={() => setSelected(r.code)}
+                  className="w-full text-left px-2 py-1.5 rounded border border-slate-800 hover:bg-slate-800/40 cursor-pointer"
+                >
+                  <div className="flex justify-between gap-2">
+                    <span className="text-slate-200">{r.name}</span>
+                    <span
+                      className={`font-mono ${
+                        r.netInflow >= 0 ? "text-red-400" : "text-emerald-400"
+                      }`}
+                    >
+                      {fmtAmt(r.netInflow)}
+                    </span>
+                  </div>
+                  <div className="text-[10px] text-slate-500 font-mono flex justify-between">
+                    <span>{r.code}</span>
+                    <span>
+                      {r.changePct >= 0 ? "+" : ""}
+                      {r.changePct.toFixed(2)}% · 额 {fmtAmt(r.amount)}
+                    </span>
+                  </div>
+                </button>
+              ))}
+              {!moneyFlow?.rows?.length && (
+                <div className="text-slate-500 text-[11px] py-6 text-center">
+                  暂无资金代理。跑 compute-heat 后写入 money_flow_daily。
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -69,6 +69,32 @@ def main(argv: list[str] | None = None) -> int:
     p_bars.add_argument("--sleep", type=float, default=None, help="Sleep between symbols (default from env)")
     p_bars.add_argument("--limit", type=int, default=None, help="Only first N universe codes")
 
+    p_concepts = sub.add_parser(
+        "import-concepts",
+        help="Import data/concept_members.csv → concept_members (+ optional theme_id)",
+    )
+    p_concepts.add_argument("--csv", default=None, help="Path to concept CSV")
+    p_concepts.add_argument(
+        "--no-theme",
+        action="store_true",
+        help="Do not write instruments.theme_id from CSV",
+    )
+
+    sub.add_parser(
+        "ingest-limit-up",
+        help="Rebuild board-aware limit_up_pool from quotes_latest",
+    )
+    sub.add_parser(
+        "ingest-money-flow",
+        help="Persist money_flow_daily proxy (amount×change_pct)",
+    )
+    p_5m = sub.add_parser(
+        "aggregate-bars-5m",
+        help="V2: aggregate quotes_snapshot → bars_5m",
+    )
+    p_5m.add_argument("--hours", type=int, default=8, help="Lookback hours")
+    p_5m.add_argument("--bucket", type=int, default=5, help="Bucket minutes")
+
     sub.add_parser("bootstrap", help="init-db + calendar + instruments + fundamentals + universe")
 
     args = parser.parse_args(argv)
@@ -135,6 +161,31 @@ def main(argv: list[str] | None = None) -> int:
 
         sleep = args.sleep if args.sleep is not None else get_settings().bars_sleep_sec
         run(days=args.days, sleep=sleep, limit=args.limit)
+        return 0
+    if args.cmd == "import-concepts":
+        from pathlib import Path
+
+        from src.jobs.import_concepts import run
+
+        run(
+            csv_path=Path(args.csv) if args.csv else None,
+            apply_theme=not args.no_theme,
+        )
+        return 0
+    if args.cmd == "ingest-limit-up":
+        from src.jobs.ingest_limit_up import run
+
+        run()
+        return 0
+    if args.cmd == "ingest-money-flow":
+        from src.jobs.ingest_money_flow import run
+
+        run()
+        return 0
+    if args.cmd == "aggregate-bars-5m":
+        from src.jobs.aggregate_bars_5m import run
+
+        run(lookback_hours=args.hours, bucket_minutes=args.bucket)
         return 0
     if args.cmd == "bootstrap":
         return cmd_bootstrap()

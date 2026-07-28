@@ -15,7 +15,7 @@ export default function RankPanel() {
     <div className="rounded-xl border border-slate-800 bg-slate-900/40 overflow-hidden">
       <div className="px-4 py-3 border-b border-slate-800 flex items-center justify-between">
         <h3 className="text-sm font-semibold text-slate-100">全市场个股热榜（池内）</h3>
-        <span className="text-[10px] text-amber-500/80">资金净流入=代理 · 涨停=近似</span>
+        <span className="text-[10px] text-amber-500/80">资金=代理 · 涨停=板别阈值</span>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-xs">

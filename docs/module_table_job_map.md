@@ -29,8 +29,12 @@
 
 | CLI | 写入 | 触发 |
 |---|---|---|
-| `compute-heat` | heat_* / rotation / alerts | 手动；`ingest-quotes` 成功后自动；周 cron |
+| `compute-heat` | heat_* / rotation / alerts；顺带 limit_up + money_flow | 手动；`ingest-quotes` 成功后自动；周 cron |
 | `apply-themes` | `instruments.theme_id` | 周 cron（不打东财板） |
+| `import-concepts` | `concept_members` (+ theme) | 手动 / 周 cron |
+| `ingest-limit-up` | `limit_up_pool` | compute-heat 后；或手动 |
+| `ingest-money-flow` | `money_flow_daily` | compute-heat 后；或手动 |
+| `aggregate-bars-5m` | `bars_5m` | V2 可选，盘中后跑 |
 | `ingest-quotes` | `quotes_*` → 再 `compute-heat` | systemd 盘中 |
 
 ## 热力公式 V1
@@ -38,7 +42,11 @@
 - 个股：`0.35*涨跌幅分位 + 0.25*成交额分位 + 0.20*换手分位 + 0.20*|涨跌|动量分位`
 - 题材：成交额加权个股热力 + 上涨家数占比微调
 - `net_inflow_proxy = amount * change_pct/100`（**代理**，`data_quality=proxy`）
-- `is_limit_up_approx = change_pct >= 9.5`（非正式涨停池）
+- 涨停：主板≥9.5% / 创业板≥19.5% / ST≥4.8%（写入 `limit_up_pool`）
+
+## V1.5 / V2 表
+
+见 `collector/sql/005_v15_platform.sql`、`006_v2_minute_sentiment.sql` 与 [`roadmap_v15_v2.md`](roadmap_v15_v2.md)。
 
 ## 题材字典（10 theme）
 

@@ -20,7 +20,7 @@
 1. `instruments.theme_id`（库内已写）
 2. 精选代码表 `CODE_TO_THEME`（`server/sectorThemes.ts`）
 3. `theme_industry_map` / 行业关键词（`apply-themes`）
-4. 静态概念成分 [`data/concept_members.csv`](../data/concept_members.csv)（后续可扩展导入）
+4. 静态概念成分 [`data/concept_members.csv`](../data/concept_members.csv) → `python -m src.cli import-concepts`
 
 ## 扩展概念
 

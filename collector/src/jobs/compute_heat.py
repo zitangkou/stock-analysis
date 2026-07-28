@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from ..boards import is_limit_up
 from ..db import fetch_all, finish_job, get_conn, start_job
 
 logger = logging.getLogger(__name__)
@@ -103,7 +104,7 @@ def run(retention_days: int = 14, evaluate_alerts: bool = True) -> int:
             acceleration = momentum - prev_mom
             # Proxy net inflow: signed amount * change intensity (NOT real money flow)
             net_proxy = amt * (ch / 100.0) if amt else 0.0
-            is_limit = ch >= 9.5
+            is_limit = is_limit_up(r["code"], ch, r.get("name"))
             stock_scores.append(
                 {
                     "ts": now,
@@ -136,6 +137,20 @@ def run(retention_days: int = 14, evaluate_alerts: bool = True) -> int:
         if evaluate_alerts:
             _evaluate_alerts(stock_scores, sector_scores)
         _trim_history(retention_days)
+
+        # V1.5 side effects (non-fatal)
+        try:
+            from .ingest_limit_up import run as ingest_limit_up
+
+            ingest_limit_up()
+        except Exception:
+            logger.exception("ingest-limit-up after heat failed (non-fatal)")
+        try:
+            from .ingest_money_flow import run as ingest_money_flow
+
+            ingest_money_flow()
+        except Exception:
+            logger.exception("ingest-money-flow after heat failed (non-fatal)")
 
         finish_job(
             job_id,

@@ -20,6 +20,12 @@ import {
   getQuoteDetail,
   searchQuotes,
 } from "./server/dataStatus.js";
+import {
+  getBars5m,
+  getConcepts,
+  getLimitUpPool,
+  getMoneyFlowTop,
+} from "./server/v15Data.js";
 
 async function startServer() {
   const app = express();
@@ -83,6 +89,39 @@ async function startServer() {
       res.json(row);
     } catch (err: any) {
       res.status(500).json({ error: err.message || "data-quote failed" });
+    }
+  });
+
+  app.get("/api/v15/limit-up", async (_req, res) => {
+    try {
+      res.json(await getLimitUpPool());
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "limit-up failed" });
+    }
+  });
+
+  app.get("/api/v15/money-flow", async (_req, res) => {
+    try {
+      res.json(await getMoneyFlowTop());
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "money-flow failed" });
+    }
+  });
+
+  app.get("/api/v15/concepts", async (req, res) => {
+    try {
+      res.json({ results: await getConcepts(String(req.query.q || "")) });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "concepts failed" });
+    }
+  });
+
+  app.get("/api/v15/bars-5m/:code", async (req, res) => {
+    try {
+      const limit = Math.min(Number(req.query.limit) || 96, 300);
+      res.json(await getBars5m(req.params.code, limit));
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "bars-5m failed" });
     }
   });
 
